@@ -10,7 +10,7 @@ git_release_type = "prod"
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
 pr_name = "chore: release v{{ version }}"
-publish = false
+publish = true
 release_always = false
 semver_check = false
 

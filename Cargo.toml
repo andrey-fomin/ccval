@@ -1,9 +1,13 @@
 [package]
-name = "conventional-commits-validator"
+name = "ccval"
 version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/andrey-fomin/conventional-commits-validator"
+description = "A validator for conventional commits"
+readme = "README.md"
+keywords = ["conventional-commits", "git", "validation"]
+categories = ["development-tools"]
 
 [[bin]]
 name = "ccval"

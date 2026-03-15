@@ -8,6 +8,14 @@ Validate commit messages using the Conventional Commits format with YAML configu
 
 ## Installation
 
+### crates.io
+
+```bash
+cargo install ccval
+```
+
+### GitHub Releases
+
 Download prebuilt binaries from [GitHub Releases](https://github.com/andrey-fomin/conventional-commits-validator/releases) for Linux, macOS, and Windows.
 
 ### macOS
