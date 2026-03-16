@@ -1,0 +1,49 @@
+name: 'Conventional Commits Validator'
+description: 'Validate commit messages using the Conventional Commits format'
+author: 'Andrey Fomin'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  config:
+    description: 'Path to custom config file (auto-discovered if not set)'
+    required: false
+  git-args:
+    description: 'Override default git log arguments (auto-detected if not set)'
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Validate commits
+      shell: bash
+      env:
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_GIT_ARGS: ${{ inputs.git-args }}
+      run: |
+        # Auto-detect git args
+        if [ -n "$INPUT_GIT_ARGS" ]; then
+          GIT_ARGS="$INPUT_GIT_ARGS"
+        elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          GIT_ARGS="$GITHUB_BASE_SHA..$GITHUB_HEAD_SHA --no-merges"
+        else
+          GIT_ARGS="-1"
+        fi
+
+        # Auto-discover config
+        CONFIG_ARGS=()
+        if [ -n "$INPUT_CONFIG" ]; then
+          CONFIG_ARGS=(-c "$INPUT_CONFIG")
+        elif [ -f "conventional-commits.yaml" ]; then
+          CONFIG_ARGS=(-c conventional-commits.yaml)
+        elif [ -f ".github/conventional-commits.yaml" ]; then
+          CONFIG_ARGS=(-c .github/conventional-commits.yaml)
+        fi
+
+        # Run ccval
+        docker run --pull always --rm -v "$PWD:/workspace" -w /workspace \
+          andreyfomin/ccval:0 "${CONFIG_ARGS[@]}" -- $GIT_ARGS

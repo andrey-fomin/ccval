@@ -53,6 +53,44 @@ printf 'feat: new feature\n' | docker run --rm -i andreyfomin/ccval --stdin
 docker run --rm -v $(pwd):/repo -w /repo andreyfomin/ccval
 ```
 
+### GitHub Action
+
+Use as a GitHub Action in your workflows:
+
+```yaml
+on: pull_request
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: andrey-fomin/conventional-commits-validator@v0
+```
+
+The action automatically:
+- Validates all commits in a PR (uses `--no-merges`)
+- Validates the last commit on push events
+- Discovers `conventional-commits.yaml` or `.github/conventional-commits.yaml`
+
+**With custom config:**
+
+```yaml
+- uses: andrey-fomin/conventional-commits-validator@v0
+  with:
+    config: '.github/ccval.yaml'
+```
+
+**Override git arguments:**
+
+```yaml
+- uses: andrey-fomin/conventional-commits-validator@v0
+  with:
+    git-args: 'origin/main..HEAD --no-merges'
+```
+
 ## Usage
 
 ```

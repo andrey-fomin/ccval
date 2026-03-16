@@ -267,6 +267,28 @@ jobs:
             andreyfomin/ccval:${{ steps.version.outputs.minor }}-distroless
             andreyfomin/ccval:distroless
 
+  update-major-tag:
+    name: Update major version tag
+    needs: [setup, docker-alpine]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ needs.setup.outputs.tag }}
+
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update major version tag
+        run: |
+          MAJOR=$(echo "${{ needs.setup.outputs.tag }}" | sed 's/^v\([0-9]*\).*/v\1/')
+          git tag -fa "$MAJOR" -m "Update $MAJOR tag to ${{ needs.setup.outputs.tag }}"
+          git push origin "$MAJOR" --force
+
   docker-hub-metadata:
     name: Update Docker Hub metadata
     needs: [setup, docker-alpine, docker-distroless]
