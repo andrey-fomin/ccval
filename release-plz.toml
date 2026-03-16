@@ -1,7 +1,7 @@
 [workspace]
 changelog_update = true
 features_always_increment_minor = true
-git_only = true
+git_only = false
 git_release_draft = false
 git_release_enable = true
 git_release_latest = true
