@@ -55,7 +55,7 @@ docker run --rm -v $(pwd):/repo -w /repo andreyfomin/ccval --trust-repo
 
 ### GitHub Action
 
-Use as a GitHub Action in your workflows:
+Use it in your workflow:
 
 ```yaml
 on: pull_request
@@ -75,7 +75,9 @@ The action automatically:
 - Validates the last commit on push events
 - Discovers `conventional-commits.yaml` or `.github/conventional-commits.yaml`
 
-**With custom config:**
+Use `@v0` to track the latest compatible `v0.x.y` release, or pin to a specific release tag like `@v0.3.1`. For a truly immutable reference, pin the action to a commit SHA instead of a tag.
+
+**Custom config:**
 
 ```yaml
 - uses: andrey-fomin/ccval@v0
