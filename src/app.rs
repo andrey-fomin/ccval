@@ -23,6 +23,7 @@ pub fn run(options: CliOptions, git_loader: &dyn GitLoader) -> Result<RunOutcome
         options.input_mode,
         git_loader,
         options.repository_path.as_deref(),
+        options.trust_repo,
     )?;
 
     let mut parse_failed = false;
@@ -75,6 +76,7 @@ fn load_inputs(
     input_mode: InputMode,
     git_loader: &dyn GitLoader,
     repository_path: Option<&str>,
+    trust_repo: bool,
 ) -> Result<Vec<CommitInput>, AppError> {
     match input_mode {
         InputMode::Stdin => Ok(vec![CommitInput {
@@ -92,7 +94,7 @@ fn load_inputs(
             }])
         }
         InputMode::Git { git_args } => Ok(git_loader
-            .load_commits(&git_args, repository_path)
+            .load_commits(&git_args, repository_path, trust_repo)
             .map_err(AppError::Git)?
             .into_iter()
             .map(|commit| CommitInput {
@@ -126,6 +128,7 @@ mod tests {
             &self,
             _args: &[String],
             _repository_path: Option<&str>,
+            _trust_repo: bool,
         ) -> Result<Vec<GitCommit>, GitError> {
             if let Some(ref err) = self.error {
                 return Err(GitError::GitFailed {
@@ -137,6 +140,8 @@ mod tests {
                         GitError::GitFailed { stderr, .. } => stderr.clone(),
                         GitError::Io(e) => e.to_string(),
                         GitError::InvalidOutput(s) => s.clone(),
+                        GitError::RepositoryPathResolution { error, .. } => error.to_string(),
+                        GitError::CurrentDirResolution(e) => e.to_string(),
                     },
                 });
             }
@@ -148,6 +153,7 @@ mod tests {
         CliOptions {
             config_path: None,
             repository_path: None,
+            trust_repo: false,
             input_mode,
         }
     }
@@ -216,6 +222,7 @@ mod tests {
         let options = CliOptions {
             config_path: Some(config_path),
             repository_path: None,
+            trust_repo: false,
             input_mode: InputMode::Git {
                 git_args: vec!["HEAD".to_string()],
             },

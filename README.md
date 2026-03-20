@@ -50,7 +50,7 @@ printf 'feat: new feature\n' | docker run --rm -i andreyfomin/ccval --stdin
 **Validate git commits (Alpine image only):**
 
 ```bash
-docker run --rm -v $(pwd):/repo -w /repo andreyfomin/ccval
+docker run --rm -v $(pwd):/repo -w /repo andreyfomin/ccval --trust-repo
 ```
 
 ### GitHub Action
@@ -94,7 +94,7 @@ The action automatically:
 ## Usage
 
 ```
-Usage: ccval [-c <path>] [-r <path>] [-- <git-log-args>...]
+Usage: ccval [-c <path>] [-r <path>] [-T] [-- <git-log-args>...]
        ccval [-c <path>] --stdin
        ccval [-c <path>] -f <path>
        ccval -h
@@ -114,12 +114,18 @@ Options:
   -c, --config <path>  Use a custom config file path
   -r, --repository <path>
                        Path to Git repository working tree
-                       (incompatible with --stdin and --file)
+                       Cannot be used with --stdin or --file
+  -T, --trust-repo     Trust the repository despite ownership mismatch
+                       Useful when running in containers or accessing
+                       repositories owned by other users
+                       Requires git mode (cannot use with --stdin or --file)
 
 Examples:
   ccval                              # validate last commit
   ccval -- origin/main..HEAD         # validate commits on branch
   ccval -r /path/to/repo             # validate last commit in specific repo
+  ccval -T                           # validate last commit, trusting repo
+  ccval -r /repo -T                  # validate in container
   printf 'feat: msg\n' | ccval --stdin
   ccval --file .git/COMMIT_EDITMSG
   ccval -c config.yaml --stdin

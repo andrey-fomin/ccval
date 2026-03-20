@@ -46,4 +46,4 @@ runs:
 
         # Run ccval
         docker run --pull always --rm -v "$PWD:/workspace" -w /workspace \
-          andreyfomin/ccval:0 "${CONFIG_ARGS[@]}" -- $GIT_ARGS
+          andreyfomin/ccval:0 --trust-repo "${CONFIG_ARGS[@]}" -- $GIT_ARGS
