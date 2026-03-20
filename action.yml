@@ -1,4 +1,4 @@
-name: 'Conventional Commits Validator'
+name: 'ccval - Conventional Commits Validator'
 description: 'Validate commit messages using the Conventional Commits format'
 author: 'Andrey Fomin'
 branding:
