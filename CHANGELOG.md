@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/andrey-fomin/ccval/compare/v0.3.0...v0.3.1) - 2026-03-20
+
+### Changed
+
+- add typos spellcheck workflow
+
+### Documentation
+
+- split parsing and validation guidance
+- rename marketplace action
+
+### Fixed
+
+- simplify strict preset rules
+
 ## [0.3.0](https://github.com/andrey-fomin/ccval/compare/v0.2.0...v0.3.0) - 2026-03-20
 
 ### Added
