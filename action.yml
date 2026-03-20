@@ -9,6 +9,9 @@ inputs:
   config:
     description: 'Path to custom config file (auto-discovered if not set)'
     required: false
+  preset:
+    description: 'Built-in preset to apply (default or strict)'
+    required: false
   git-args:
     description: 'Override default git log arguments (auto-detected if not set)'
     required: false
@@ -23,15 +26,16 @@ runs:
         GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_PRESET: ${{ inputs.preset }}
         INPUT_GIT_ARGS: ${{ inputs.git-args }}
       run: |
         # Auto-detect git args
         if [ -n "$INPUT_GIT_ARGS" ]; then
-          GIT_ARGS="$INPUT_GIT_ARGS"
+          read -r -a GIT_ARGS <<< "$INPUT_GIT_ARGS"
         elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-          GIT_ARGS="$GITHUB_BASE_SHA..$GITHUB_HEAD_SHA --no-merges"
+          GIT_ARGS=("$GITHUB_BASE_SHA..$GITHUB_HEAD_SHA" "--no-merges")
         else
-          GIT_ARGS="-1"
+          GIT_ARGS=("-1")
         fi
 
         # Auto-discover config
@@ -44,6 +48,11 @@ runs:
           CONFIG_ARGS=(-c .github/conventional-commits.yaml)
         fi
 
+        PRESET_ARGS=()
+        if [ -n "$INPUT_PRESET" ]; then
+          PRESET_ARGS=(-p "$INPUT_PRESET")
+        fi
+
         # Run ccval
         docker run --pull always --rm -v "$PWD:/workspace" -w /workspace \
-          andreyfomin/ccval:0 --trust-repo "${CONFIG_ARGS[@]}" -- $GIT_ARGS
+          andreyfomin/ccval:0 --trust-repo "${CONFIG_ARGS[@]}" "${PRESET_ARGS[@]}" -- "${GIT_ARGS[@]}"

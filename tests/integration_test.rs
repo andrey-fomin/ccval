@@ -135,6 +135,20 @@ fn custom_config_path() {
 }
 
 #[test]
+fn preset_flag_applies_strict_validation() {
+    let message = format!("feat: {}\n", "a".repeat(60));
+    let (_, stderr, code) = run_with_stdin(&["-p", "strict", "--stdin"], &message);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("Validation error"));
+}
+
+#[test]
+fn preset_flag_allows_default_validation() {
+    let (_, _, code) = run_with_stdin(&["-p", "default", "--stdin"], "feat: add feature\n");
+    assert_eq!(code, 0);
+}
+
+#[test]
 fn stdin_mode_explicit() {
     let (_, _, code1) = run_with_stdin(&["--stdin"], "docs: update readme\n");
     let (_, _, code2) = run_with_stdin(&["--stdin"], "feat: new feature\n");

@@ -18,7 +18,8 @@ pub enum AppError {
 }
 
 pub fn run(options: CliOptions, git_loader: &dyn GitLoader) -> Result<RunOutcome, AppError> {
-    let config = load_config(options.config_path.as_deref()).map_err(AppError::Config)?;
+    let config = load_config(options.config_path.as_deref(), options.preset.as_deref())
+        .map_err(AppError::Config)?;
     let inputs = load_inputs(
         options.input_mode,
         git_loader,
@@ -65,11 +66,8 @@ struct CommitInput {
     message: String,
 }
 
-fn load_config(config_path: Option<&str>) -> Result<Config, ConfigError> {
-    match config_path {
-        Some(path) => Config::load_from_path(path),
-        None => Config::load(),
-    }
+fn load_config(config_path: Option<&str>, preset: Option<&str>) -> Result<Config, ConfigError> {
+    Config::load_with_preset(config_path, preset)
 }
 
 fn load_inputs(
@@ -152,6 +150,7 @@ mod tests {
     fn make_options(input_mode: InputMode) -> CliOptions {
         CliOptions {
             config_path: None,
+            preset: None,
             repository_path: None,
             trust_repo: false,
             input_mode,
@@ -221,6 +220,7 @@ mod tests {
         };
         let options = CliOptions {
             config_path: Some(config_path),
+            preset: None,
             repository_path: None,
             trust_repo: false,
             input_mode: InputMode::Git {

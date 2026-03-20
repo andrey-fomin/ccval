@@ -55,7 +55,7 @@ docker run --rm -v $(pwd):/repo -w /repo andreyfomin/ccval --trust-repo
 
 ### GitHub Action
 
-Use as a GitHub Action in your workflows:
+Use it in your workflow:
 
 ```yaml
 on: pull_request
@@ -74,13 +74,24 @@ The action automatically:
 - Validates all commits in a PR (uses `--no-merges`)
 - Validates the last commit on push events
 - Discovers `conventional-commits.yaml` or `.github/conventional-commits.yaml`
+- Supports the `preset` input (`default` or `strict`)
 
-**With custom config:**
+Use `@v0` to track the latest compatible `v0.x.y` release, or pin to a specific release tag like `@v0.3.1`. For a truly immutable reference, pin the action to a commit SHA instead of a tag.
+
+**Custom config:**
 
 ```yaml
 - uses: andrey-fomin/ccval@v0
   with:
     config: '.github/ccval.yaml'
+```
+
+**Built-in preset:**
+
+```yaml
+- uses: andrey-fomin/ccval@v0
+  with:
+    preset: strict
 ```
 
 **Override git arguments:**
@@ -94,9 +105,9 @@ The action automatically:
 ## Usage
 
 ```
-Usage: ccval [-c <path>] [-r <path>] [-T] [-- <git-log-args>...]
-       ccval [-c <path>] --stdin
-       ccval [-c <path>] -f <path>
+Usage: ccval [-c <path>] [-p <preset>] [-r <path>] [-T] [-- <git-log-args>...]
+       ccval [-c <path>] [-p <preset>] --stdin
+       ccval [-c <path>] [-p <preset>] -f <path>
        ccval -h
 
 Validates commit messages from stdin, a file, or Git.
@@ -112,6 +123,7 @@ Modes:
 
 Options:
   -c, --config <path>  Use a custom config file path
+  -p, --preset <name>  Use a built-in preset (default or strict)
   -r, --repository <path>
                        Path to Git repository working tree
                        Cannot be used with --stdin or --file
@@ -123,6 +135,7 @@ Options:
 Examples:
   ccval                              # validate last commit
   ccval -- origin/main..HEAD         # validate commits on branch
+  ccval -p strict                    # validate last commit with strict preset
   ccval -r /path/to/repo             # validate last commit in specific repo
   ccval -T                           # validate last commit, trusting repo
   ccval -r /repo -T                  # validate in container
@@ -169,6 +182,8 @@ Configuration is defined in `conventional-commits.yaml` in your working director
 
 - `default` - formatting rules for description spacing and newline handling in body/footer values
 - `strict` - `default` plus header length limits and common type/scope restrictions
+
+Use `-p/--preset` to select a built-in preset from the command line without changing your config file.
 
 Example:
 

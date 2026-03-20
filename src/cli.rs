@@ -1,6 +1,7 @@
-pub const HELP_TEXT: &str = "Usage: ccval [-c <path>] [-r <path>] [-T] [-- <git-log-args>...]
-       ccval [-c <path>] --stdin
-       ccval [-c <path>] -f <path>
+pub const HELP_TEXT: &str =
+    "Usage: ccval [-c <path>] [-p <preset>] [-r <path>] [-T] [-- <git-log-args>...]
+       ccval [-c <path>] [-p <preset>] --stdin
+       ccval [-c <path>] [-p <preset>] -f <path>
        ccval -h
 
 Validates commit messages from stdin, a file, or Git.
@@ -16,6 +17,7 @@ Modes:
 
 Options:
   -c, --config <path>  Use a custom config file path
+  -p, --preset <name>  Use a built-in preset (default or strict)
   -r, --repository <path>
                        Path to Git repository working tree
                        Cannot be used with --stdin or --file
@@ -27,6 +29,7 @@ Options:
 Examples:
   ccval                              # validate last commit
   ccval -- origin/main..HEAD         # validate commits on branch
+  ccval -p strict                    # validate last commit with strict preset
   ccval -r /path/to/repo             # validate last commit in specific repo
   ccval -T                           # validate last commit, trusting repo
   ccval -r /repo -T                  # validate in container
@@ -47,6 +50,7 @@ pub enum InputMode {
 #[derive(Debug, PartialEq)]
 pub struct CliOptions {
     pub config_path: Option<String>,
+    pub preset: Option<String>,
     pub repository_path: Option<String>,
     pub trust_repo: bool,
     pub input_mode: InputMode,
@@ -77,6 +81,7 @@ where
     }
 
     let mut config_path = None;
+    let mut preset = None;
     let mut repository_path = None;
     let mut file_path = None;
     let mut stdin_mode = false;
@@ -114,6 +119,18 @@ where
                 }
                 config_path = Some(path);
             }
+            "--preset" | "-p" => {
+                let Some(name) = args.next() else {
+                    return Err(format!("missing value for {}. {}", arg, HELP_HINT));
+                };
+                if preset.is_some() {
+                    return Err(format!(
+                        "--preset/-p may be specified only once. {}",
+                        HELP_HINT
+                    ));
+                }
+                preset = Some(name);
+            }
             "--repository" | "-r" => {
                 let Some(path) = args.next() else {
                     return Err(format!("missing value for {}. {}", arg, HELP_HINT));
@@ -144,6 +161,7 @@ where
 
     if show_help {
         if config_path.is_some()
+            || preset.is_some()
             || repository_path.is_some()
             || file_path.is_some()
             || stdin_mode
@@ -229,6 +247,7 @@ where
 
     Ok(CliAction::Run(CliOptions {
         config_path,
+        preset,
         repository_path,
         trust_repo,
         input_mode,
@@ -245,11 +264,13 @@ mod tests {
 
     fn make_options(
         config_path: Option<String>,
+        preset: Option<String>,
         repository_path: Option<String>,
         input_mode: InputMode,
     ) -> CliOptions {
         CliOptions {
             config_path,
+            preset,
             repository_path,
             trust_repo: false,
             input_mode,
@@ -258,12 +279,14 @@ mod tests {
 
     fn make_options_with_trust(
         config_path: Option<String>,
+        preset: Option<String>,
         repository_path: Option<String>,
         trust_repo: bool,
         input_mode: InputMode,
     ) -> CliOptions {
         CliOptions {
             config_path,
+            preset,
             repository_path,
             trust_repo,
             input_mode,
@@ -277,6 +300,7 @@ mod tests {
             action,
             CliAction::Run(make_options(
                 Some("custom.yaml".to_string()),
+                None,
                 None,
                 InputMode::Git {
                     git_args: vec!["-1".to_string()],
@@ -292,6 +316,7 @@ mod tests {
             action,
             CliAction::Run(make_options(
                 Some("custom.yaml".to_string()),
+                None,
                 None,
                 InputMode::Git {
                     git_args: vec!["-1".to_string()],
@@ -324,6 +349,7 @@ mod tests {
             CliAction::Run(make_options(
                 None,
                 None,
+                None,
                 InputMode::Git {
                     git_args: vec!["-1".to_string()],
                 },
@@ -336,7 +362,7 @@ mod tests {
         let action = parse_from(&["--stdin"]).unwrap();
         assert_eq!(
             action,
-            CliAction::Run(make_options(None, None, InputMode::Stdin,))
+            CliAction::Run(make_options(None, None, None, InputMode::Stdin,))
         );
     }
 
@@ -347,6 +373,7 @@ mod tests {
             action,
             CliAction::Run(make_options(
                 Some("custom.yaml".to_string()),
+                None,
                 None,
                 InputMode::Stdin,
             ))
@@ -414,6 +441,7 @@ mod tests {
             CliAction::Run(make_options(
                 None,
                 None,
+                None,
                 InputMode::File {
                     path: "COMMIT_EDITMSG".to_string(),
                 },
@@ -427,6 +455,7 @@ mod tests {
         assert_eq!(
             action,
             CliAction::Run(make_options(
+                None,
                 None,
                 None,
                 InputMode::File {
@@ -453,6 +482,54 @@ mod tests {
     }
 
     #[test]
+    fn parse_preset_long_flag() {
+        let action = parse_from(&["--preset", "strict"]).unwrap();
+        assert_eq!(
+            action,
+            CliAction::Run(make_options(
+                None,
+                Some("strict".to_string()),
+                None,
+                InputMode::Git {
+                    git_args: vec!["-1".to_string()],
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_preset_short_flag() {
+        let action = parse_from(&["-p", "default"]).unwrap();
+        assert_eq!(
+            action,
+            CliAction::Run(make_options(
+                None,
+                Some("default".to_string()),
+                None,
+                InputMode::Git {
+                    git_args: vec!["-1".to_string()],
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_preset_missing_value() {
+        assert_eq!(
+            parse_from(&["--preset"]).unwrap_err(),
+            "missing value for --preset. Run with --help or -h for usage information."
+        );
+    }
+
+    #[test]
+    fn parse_repeated_preset_is_rejected() {
+        assert_eq!(
+            parse_from(&["--preset", "default", "-p", "strict"]).unwrap_err(),
+            "--preset/-p may be specified only once. Run with --help or -h for usage information.",
+        );
+    }
+
+    #[test]
     fn parse_repeated_file_is_rejected() {
         assert_eq!(
             parse_from(&["--file", "a.txt", "-f", "b.txt"]).unwrap_err(),
@@ -466,6 +543,7 @@ mod tests {
         assert_eq!(
             action,
             CliAction::Run(make_options(
+                None,
                 None,
                 None,
                 InputMode::Git {
@@ -483,6 +561,7 @@ mod tests {
             action,
             CliAction::Run(make_options(
                 Some("custom.yaml".to_string()),
+                None,
                 None,
                 InputMode::Git {
                     git_args: vec!["master..HEAD".to_string(), "--no-merges".to_string()],
@@ -522,6 +601,7 @@ mod tests {
             action,
             CliAction::Run(make_options(
                 None,
+                None,
                 Some("/path/to/repo".to_string()),
                 InputMode::Git {
                     git_args: vec!["-1".to_string()],
@@ -536,6 +616,7 @@ mod tests {
         assert_eq!(
             action,
             CliAction::Run(make_options(
+                None,
                 None,
                 Some("/path/to/repo".to_string()),
                 InputMode::Git {
@@ -552,6 +633,7 @@ mod tests {
             action,
             CliAction::Run(make_options(
                 None,
+                None,
                 Some("/path/to/repo".to_string()),
                 InputMode::Git {
                     git_args: vec!["HEAD~5..HEAD".to_string()],
@@ -567,6 +649,7 @@ mod tests {
             action,
             CliAction::Run(make_options(
                 Some("config.yaml".to_string()),
+                None,
                 Some("/repo".to_string()),
                 InputMode::Git {
                     git_args: vec!["-1".to_string()],
@@ -615,6 +698,7 @@ mod tests {
             CliAction::Run(make_options_with_trust(
                 None,
                 None,
+                None,
                 true,
                 InputMode::Git {
                     git_args: vec!["-1".to_string()],
@@ -624,11 +708,36 @@ mod tests {
     }
 
     #[test]
+    fn parse_preset_with_config() {
+        let action = parse_from(&["-c", "config.yaml", "-p", "strict"]).unwrap();
+        assert_eq!(
+            action,
+            CliAction::Run(make_options(
+                Some("config.yaml".to_string()),
+                Some("strict".to_string()),
+                None,
+                InputMode::Git {
+                    git_args: vec!["-1".to_string()],
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_help_with_preset_is_rejected() {
+        assert_eq!(
+            parse_from(&["--help", "--preset", "strict"]).unwrap_err(),
+            "--help/-h must be used without other arguments. Run with --help or -h for usage information.",
+        );
+    }
+
+    #[test]
     fn parse_trust_repo_short_flag() {
         let action = parse_from(&["-T"]).unwrap();
         assert_eq!(
             action,
             CliAction::Run(make_options_with_trust(
+                None,
                 None,
                 None,
                 true,
@@ -646,6 +755,7 @@ mod tests {
             action,
             CliAction::Run(make_options_with_trust(
                 None,
+                None,
                 Some("/repo".to_string()),
                 true,
                 InputMode::Git {
@@ -662,6 +772,7 @@ mod tests {
             action,
             CliAction::Run(make_options_with_trust(
                 Some("config.yaml".to_string()),
+                None,
                 None,
                 true,
                 InputMode::Git {
@@ -701,6 +812,7 @@ mod tests {
         assert_eq!(
             action,
             CliAction::Run(make_options_with_trust(
+                None,
                 None,
                 None,
                 true,

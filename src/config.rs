@@ -115,6 +115,18 @@ impl Config {
         }
     }
 
+    fn without_preset(mut config: Config) -> Config {
+        config.preset = None;
+        config
+    }
+
+    fn read_config_str(path: &str) -> Result<String, ConfigError> {
+        std::fs::read_to_string(path).map_err(|error| ConfigError::ReadFailed {
+            path: path.to_string(),
+            error,
+        })
+    }
+
     pub fn merge(base: &Config, overrides: &Config) -> Config {
         let mut footers = HashMap::new();
         if let Some(b_footers) = &base.footers {
@@ -169,46 +181,51 @@ impl Config {
         Ok(serde_yaml::from_str(preset_yaml)?)
     }
 
-    pub fn load_from_str(local_config_str: &str) -> Result<Config, ConfigError> {
-        let local_config: Config = serde_yaml::from_str(local_config_str)?;
-        match local_config.preset.as_deref() {
-            Some("default") => {
-                let default_config = Self::load_preset("default")?;
-                Ok(Config::merge(&default_config, &local_config))
-            }
-            Some("strict") => {
-                let strict_config = Self::load_preset("strict")?;
-                Ok(Config::merge(&strict_config, &local_config))
-            }
-            Some(other) => Err(ConfigError::UnknownPreset(other.to_string())),
-            None => Ok(Config::merge(&Self::empty(), &local_config)),
-        }
+    fn load_raw_from_str(local_config_str: &str) -> Result<Config, ConfigError> {
+        Ok(serde_yaml::from_str(local_config_str)?)
     }
 
-    pub fn load() -> Result<Config, ConfigError> {
-        Self::load_default_path_if_exists("conventional-commits.yaml")
-    }
-
-    pub fn load_default_path_if_exists(path: &str) -> Result<Config, ConfigError> {
+    fn load_raw_default_path_if_exists(path: &str) -> Result<Config, ConfigError> {
         if !Path::new(path).exists() {
             return Ok(Self::empty());
         }
 
-        let local_config_str =
-            std::fs::read_to_string(path).map_err(|error| ConfigError::ReadFailed {
-                path: path.to_string(),
-                error,
-            })?;
-        Self::load_from_str(&local_config_str)
+        let local_config_str = Self::read_config_str(path)?;
+        Self::load_raw_from_str(&local_config_str)
     }
 
-    pub fn load_from_path(path: &str) -> Result<Config, ConfigError> {
-        let local_config_str =
-            std::fs::read_to_string(path).map_err(|error| ConfigError::ReadFailed {
-                path: path.to_string(),
-                error,
-            })?;
-        Self::load_from_str(&local_config_str)
+    fn load_raw_from_path(path: &str) -> Result<Config, ConfigError> {
+        let local_config_str = Self::read_config_str(path)?;
+        Self::load_raw_from_str(&local_config_str)
+    }
+
+    fn apply_preset(local_config: Config, preset: Option<&str>) -> Result<Config, ConfigError> {
+        let chosen_preset = preset
+            .map(|name| name.to_string())
+            .or_else(|| local_config.preset.clone());
+        let config_without_preset = Self::without_preset(local_config);
+
+        match chosen_preset {
+            Some(name) => {
+                let preset_config = Self::load_preset(&name)?;
+                let mut merged = Config::merge(&preset_config, &config_without_preset);
+                merged.preset = Some(name);
+                Ok(merged)
+            }
+            None => Ok(config_without_preset),
+        }
+    }
+
+    pub fn load_with_preset(
+        config_path: Option<&str>,
+        preset: Option<&str>,
+    ) -> Result<Config, ConfigError> {
+        let local_config = match config_path {
+            Some(path) => Self::load_raw_from_path(path)?,
+            None => Self::load_raw_default_path_if_exists("conventional-commits.yaml")?,
+        };
+
+        Self::apply_preset(local_config, preset)
     }
 }
 
@@ -232,7 +249,8 @@ mod tests {
 message:
   max-length: 1000
 ";
-        let config = Config::load_from_str(custom_yaml).unwrap();
+        let config =
+            Config::apply_preset(Config::load_raw_from_str(custom_yaml).unwrap(), None).unwrap();
 
         assert_eq!(config.message.as_ref().unwrap().max_length, Some(1000));
         assert_eq!(config.message.as_ref().unwrap().max_line_length, None);
@@ -244,7 +262,7 @@ message:
         let custom_yaml = "
 preset: unsupported
 ";
-        let result = Config::load_from_str(custom_yaml);
+        let result = Config::apply_preset(Config::load_raw_from_str(custom_yaml).unwrap(), None);
         assert!(
             matches!(result, Err(ConfigError::UnknownPreset(preset)) if preset == "unsupported")
         );
@@ -286,7 +304,7 @@ type:
 header:
   max-length: not_a_number
 ";
-        let result = Config::load_from_str(invalid_yaml);
+        let result = Config::load_raw_from_str(invalid_yaml);
         assert!(result.is_err());
     }
 
@@ -296,7 +314,7 @@ header:
 header:
   unknown: true
 ";
-        let result = Config::load_from_str(invalid_yaml);
+        let result = Config::load_raw_from_str(invalid_yaml);
         assert!(result.is_err());
         assert!(
             result
@@ -313,14 +331,15 @@ header:
   regexes:
     - "(unclosed"
 "#;
-        let result = Config::load_from_str(invalid_yaml);
+        let result = Config::load_raw_from_str(invalid_yaml);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid regex"));
     }
 
     #[test]
     fn test_load_default_path_if_missing_returns_empty_config() {
-        let config = Config::load_default_path_if_exists("definitely-missing-config.yaml").unwrap();
+        let config =
+            Config::load_raw_default_path_if_exists("definitely-missing-config.yaml").unwrap();
         assert!(config.message.is_none());
         assert!(config.header.is_none());
         assert!(config.commit_type.is_none());
@@ -328,7 +347,27 @@ header:
 
     #[test]
     fn test_load_from_path_requires_existing_file() {
-        let result = Config::load_from_path("definitely-missing-config.yaml");
+        let result = Config::load_raw_from_path("definitely-missing-config.yaml");
         assert!(matches!(result, Err(ConfigError::ReadFailed { .. })));
+    }
+
+    #[test]
+    fn test_load_with_preset_overrides_config_file_preset() {
+        let config_file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            config_file.path(),
+            "preset: default\nmessage:\n  max-length: 200\n",
+        )
+        .unwrap();
+
+        let config =
+            Config::load_with_preset(Some(config_file.path().to_str().unwrap()), Some("strict"))
+                .unwrap();
+        assert_eq!(config.preset.as_deref(), Some("strict"));
+        assert!(config.header.is_some());
+        assert_eq!(
+            config.message.as_ref().and_then(|m| m.max_length),
+            Some(200)
+        );
     }
 }
