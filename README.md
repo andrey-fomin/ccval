@@ -143,24 +143,43 @@ Examples:
 | 5 | I/O error |
 | 6 | Git error |
 
-## Examples
+## How It Works
 
-```bash
-ccval                              # validate last commit
-ccval -- origin/main..HEAD         # validate commits on branch
-ccval -r /path/to/repo             # validate last commit in specific repo
-ccval -r . -c config.yaml          # use custom config
-printf 'feat: msg\n' | ccval --stdin
-ccval --file .git/COMMIT_EDITMSG
-ccval -c config.yaml --stdin
-```
+`ccval` works in two steps:
+
+1. It parses the commit message structure.
+2. It applies validation rules from your config.
+
+To avoid ambiguity in this document:
+
+- a message is **parseable** if its structure can be parsed
+- a message **passes validation** if the parsed fields satisfy the configured rules
+
+A commit message can be parseable and still fail validation.
+
+See [`PARSING.md`](PARSING.md) for commit message grammar and parse errors.
+
+See [`VALIDATION.md`](VALIDATION.md) for available fields, rule types, presets, and configuration examples.
 
 ## Configuration
 
-Create `conventional-commits.yaml` in your working directory:
+Configuration is defined in `conventional-commits.yaml` in your working directory.
+
+### Presets
+
+- `default` - formatting rules for description spacing and newline handling in body/footer values
+- `strict` - `default` plus header length limits and common type/scope restrictions
+
+Example:
 
 ```yaml
 preset: strict
+
+type:
+  values:
+    - feat
+    - fix
+    - docs
 
 scope:
   required: true
@@ -169,46 +188,9 @@ scope:
     - core
     - ui
 
-type:
-  values:
-    - feat
-    - fix
-    - docs
-    - refactor
+header:
+  max-line-length: 50
 ```
-
-### Presets
-
-- `default` - formatting rules for description spacing
-- `strict` - `default` plus header length limits and common type restrictions
-
-### Available Fields
-
-```yaml
-preset: default
-
-message: <RULES>
-header: <RULES>
-type: <RULES>
-scope: <RULES>
-description: <RULES>
-body: <RULES>
-footer-token: <RULES>
-footer-value: <RULES>
-footers:
-  Closes: <RULES>
-```
-
-### Validation Rules
-
-| Rule | Description |
-|------|-------------|
-| `max-length` | Maximum total length (including newlines) |
-| `max-line-length` | Maximum line length (excluding newlines) |
-| `required` | Field must be present |
-| `forbidden` | Field must not be present |
-| `regexes` | List of regexes (all must match) |
-| `values` | List of allowed values |
 
 ## Building from Source
 
