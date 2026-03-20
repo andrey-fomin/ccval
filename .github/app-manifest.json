@@ -1,6 +1,6 @@
 {
   "name": "ccval-release-bot",
-  "url": "https://github.com/andrey-fomin/conventional-commits-validator",
+  "url": "https://github.com/andrey-fomin/ccval",
   "public": false,
   "redirect_url": "",
   "callback_urls": [],

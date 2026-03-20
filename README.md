@@ -1,7 +1,7 @@
 # Conventional Commits Validator
 
-[![CI](https://github.com/andrey-fomin/conventional-commits-validator/actions/workflows/ci.yml/badge.svg)](https://github.com/andrey-fomin/conventional-commits-validator/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/andrey-fomin/conventional-commits-validator)](https://github.com/andrey-fomin/conventional-commits-validator/releases)
+[![CI](https://github.com/andrey-fomin/ccval/actions/workflows/ci.yml/badge.svg)](https://github.com/andrey-fomin/ccval/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/andrey-fomin/ccval)](https://github.com/andrey-fomin/ccval/releases)
 [![Docker](https://img.shields.io/badge/docker-andreyfomin%2Fccval-blue)](https://hub.docker.com/r/andreyfomin/ccval)
 
 Validate commit messages using the Conventional Commits format with YAML configuration.
@@ -16,7 +16,7 @@ cargo install ccval
 
 ### GitHub Releases
 
-Download prebuilt binaries from [GitHub Releases](https://github.com/andrey-fomin/conventional-commits-validator/releases) for Linux, macOS, and Windows.
+Download prebuilt binaries from [GitHub Releases](https://github.com/andrey-fomin/ccval/releases) for Linux, macOS, and Windows.
 
 ### macOS
 
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: andrey-fomin/conventional-commits-validator@v0
+      - uses: andrey-fomin/ccval@v0
 ```
 
 The action automatically:
@@ -78,7 +78,7 @@ The action automatically:
 **With custom config:**
 
 ```yaml
-- uses: andrey-fomin/conventional-commits-validator@v0
+- uses: andrey-fomin/ccval@v0
   with:
     config: '.github/ccval.yaml'
 ```
@@ -86,7 +86,7 @@ The action automatically:
 **Override git arguments:**
 
 ```yaml
-- uses: andrey-fomin/conventional-commits-validator@v0
+- uses: andrey-fomin/ccval@v0
   with:
     git-args: 'origin/main..HEAD --no-merges'
 ```
