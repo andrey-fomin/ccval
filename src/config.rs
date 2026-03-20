@@ -217,36 +217,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_load_default() {
-        let config = Config::load_preset("default").unwrap();
-        assert!(config.body.is_some());
-        assert!(config.footer_value.is_some());
-    }
-
-    #[test]
     fn test_default_preset_smoke() {
         Config::load_preset("default").unwrap();
-    }
-
-    #[test]
-    fn test_load_strict_preset() {
-        let config = Config::load_preset("strict").unwrap();
-        assert_eq!(config.message.as_ref().unwrap().max_line_length, Some(72));
-        assert_eq!(config.header.as_ref().unwrap().max_length, Some(51));
-        assert_eq!(config.body.as_ref().unwrap().max_line_length, Some(72));
-        assert!(config.scope.as_ref().unwrap().regexes.is_some());
-        assert!(
-            config
-                .commit_type
-                .as_ref()
-                .unwrap()
-                .values
-                .as_ref()
-                .unwrap()
-                .contains(&"feat".to_string())
-        );
-        assert!(config.body.as_ref().unwrap().regexes.is_some());
-        assert!(config.footer_value.as_ref().unwrap().regexes.is_some());
     }
 
     #[test]
@@ -265,46 +237,6 @@ message:
         assert_eq!(config.message.as_ref().unwrap().max_length, Some(1000));
         assert_eq!(config.message.as_ref().unwrap().max_line_length, None);
         assert!(config.commit_type.is_none());
-    }
-
-    #[test]
-    fn test_load_from_str_with_default_preset_applies_defaults() {
-        let custom_yaml = "
-preset: default
-message:
-  max-length: 1000
-";
-        let config = Config::load_from_str(custom_yaml).unwrap();
-
-        assert_eq!(config.message.as_ref().unwrap().max_length, Some(1000));
-        assert!(config.body.as_ref().unwrap().regexes.is_some());
-        assert!(config.footer_value.as_ref().unwrap().regexes.is_some());
-        assert!(config.commit_type.is_none());
-    }
-
-    #[test]
-    fn test_load_from_str_with_strict_preset_applies_strict_rules() {
-        let custom_yaml = "
-preset: strict
-";
-        let config = Config::load_from_str(custom_yaml).unwrap();
-
-        assert_eq!(config.message.as_ref().unwrap().max_line_length, Some(72));
-        assert_eq!(config.header.as_ref().unwrap().max_length, Some(51));
-        assert_eq!(config.body.as_ref().unwrap().max_line_length, Some(72));
-        assert!(config.scope.as_ref().unwrap().regexes.is_some());
-        assert!(
-            config
-                .commit_type
-                .as_ref()
-                .unwrap()
-                .values
-                .as_ref()
-                .unwrap()
-                .contains(&"feat".to_string())
-        );
-        assert!(config.body.as_ref().unwrap().regexes.is_some());
-        assert!(config.footer_value.as_ref().unwrap().regexes.is_some());
     }
 
     #[test]

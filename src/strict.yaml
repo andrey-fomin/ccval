@@ -2,8 +2,7 @@ message:
   max-line-length: 72
 
 header:
-  # Header max-length is 51, not 50, because the header value includes the trailing newline.
-  max-length: 51
+  max-line-length: 50
 
 type:
   values:
@@ -34,7 +33,6 @@ description:
     - '^.*[^.]$'
 
 body:
-  max-line-length: 72
   regexes:
     # Body must not start with a blank line.
     - '(?s)^[^\n].*'
