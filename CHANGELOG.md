@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/andrey-fomin/ccval/compare/v0.2.0...v0.3.0) - 2026-03-20
+
+### Added
+
+- add ccval GitHub Action
+- add --trust-repo/-T flag for container usage
+
+### Changed
+
+- update repository references to ccval
+
 ## [0.2.0](https://github.com/andrey-fomin/conventional-commits-validator/compare/v0.1.6...v0.2.0) - 2026-03-14
 
 ### Added
