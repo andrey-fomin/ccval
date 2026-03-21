@@ -71,10 +71,20 @@ jobs:
 ```
 
 The action automatically:
+- Supports `push` and `pull_request` events
 - Validates all commits in a PR (uses `--no-merges`)
-- Validates the last commit on push events
+- Validates pushed non-merge commits on regular pushes and full pushed histories when needed
+- Skips deleted-ref push events
+- Skips push events with zero commits
 - Discovers `conventional-commits.yaml` or `.github/conventional-commits.yaml`
 - Supports the `preset` input (`default` or `strict`)
+- Limits validation to 100 commits by default, warning and skipping larger auto-detected or custom ranges
+
+On push events, merge commits are skipped and the action prefers the exact pushed range from local history.
+If the pushed `before` commit is not available locally, the action falls back to the default-branch merge-base when possible and otherwise fails with a clear error.
+Deleted-ref pushes are skipped.
+Push events with zero commits are skipped.
+When validating `push` events, make sure your workflow fetches enough history (for example `actions/checkout` with `fetch-depth: 0`) so the required commit range is available.
 
 Use `@v0` to track the latest compatible `v0.x.y` release, or pin to a specific release tag like `@v0.3.1`. For a truly immutable reference, pin the action to a commit SHA instead of a tag.
 
@@ -100,6 +110,14 @@ Use `@v0` to track the latest compatible `v0.x.y` release, or pin to a specific 
 - uses: andrey-fomin/ccval@v0
   with:
     git-args: 'origin/main..HEAD --no-merges'
+```
+
+**Limit checked commits:**
+
+```yaml
+- uses: andrey-fomin/ccval@v0
+  with:
+    max-commits: '250'
 ```
 
 ## Usage

@@ -15,6 +15,10 @@ inputs:
   git-args:
     description: 'Override default git log arguments (auto-detected if not set)'
     required: false
+  max-commits:
+    description: 'Maximum number of commits to validate before skipping with a warning'
+    required: false
+    default: '100'
 
 runs:
   using: composite
@@ -23,19 +27,136 @@ runs:
       shell: bash
       env:
         GITHUB_EVENT_NAME: ${{ github.event_name }}
+        GITHUB_EVENT_DELETED: ${{ github.event.deleted }}
+        GITHUB_EVENT_BEFORE: ${{ github.event.before }}
         GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GITHUB_SHA: ${{ github.sha }}
+        GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_PRESET: ${{ inputs.preset }}
         INPUT_GIT_ARGS: ${{ inputs.git-args }}
+        INPUT_MAX_COMMITS: ${{ inputs.max-commits }}
       run: |
+        push_event_commit_count() {
+          python3 -c 'import json, os; e=json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8")); n=e.get("distinct_size") or e.get("size") or len(e.get("commits") or []); print(n)'
+        }
+
+        selected_commit_count() {
+          git log --format=%H "${GIT_ARGS[@]}" | wc -l | tr -d '[:space:]'
+        }
+
+        validate_max_commits_input() {
+          case "$INPUT_MAX_COMMITS" in
+            ''|*[!0-9]*)
+              echo "::error::max-commits must be a positive integer." >&2
+              exit 1
+              ;;
+          esac
+
+          INPUT_MAX_COMMITS=$((10#$INPUT_MAX_COMMITS))
+          if [ "$INPUT_MAX_COMMITS" -le 0 ]; then
+            echo "::error::max-commits must be greater than zero." >&2
+            exit 1
+          fi
+        }
+
+        resolve_default_branch_ref() {
+          if git rev-parse --verify "origin/$GITHUB_DEFAULT_BRANCH^{commit}" >/dev/null 2>&1; then
+            printf '%s\n' "origin/$GITHUB_DEFAULT_BRANCH"
+            return 0
+          fi
+
+          if git rev-parse --verify "$GITHUB_DEFAULT_BRANCH^{commit}" >/dev/null 2>&1; then
+            printf '%s\n' "$GITHUB_DEFAULT_BRANCH"
+            return 0
+          fi
+
+          return 1
+        }
+
+        set_push_git_args() {
+          local head_history_count
+          local default_branch_ref
+          local base_sha
+          local range_start
+          local range_start_parent
+
+          if [ -n "$GITHUB_EVENT_BEFORE" ] && [ "$GITHUB_EVENT_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            if git rev-parse --verify "$GITHUB_EVENT_BEFORE^{commit}" >/dev/null 2>&1; then
+              GIT_ARGS=("$GITHUB_EVENT_BEFORE..$GITHUB_SHA" "--no-merges")
+              return 0
+            fi
+
+            echo "Warning: Previous commit $GITHUB_EVENT_BEFORE is not available in the local checkout." >&2
+            echo "Warning: Falling back to merge-base detection. Consider increasing checkout.fetch-depth (or setting it to 0) so the full pushed range can be validated." >&2
+          fi
+
+          head_history_count=$(git rev-list --count "$GITHUB_SHA")
+          if [ "$head_history_count" = "$PUSH_EVENT_COMMIT_COUNT" ]; then
+            range_start=$(git rev-list --max-count="$PUSH_EVENT_COMMIT_COUNT" "$GITHUB_SHA" | tail -n 1 || true)
+            range_start_parent=$(git rev-parse "${range_start}^" 2>/dev/null || true)
+            if [ -n "$range_start_parent" ]; then
+              GIT_ARGS=("$range_start_parent..$GITHUB_SHA" "--no-merges")
+              return 0
+            elif [ "$PUSH_EVENT_COMMIT_COUNT" -eq 1 ]; then
+              GIT_ARGS=("$GITHUB_SHA" "--no-merges")
+              return 0
+            fi
+          fi
+
+          default_branch_ref=$(resolve_default_branch_ref || true)
+          if [ -n "$default_branch_ref" ]; then
+            base_sha=$(git merge-base "$default_branch_ref" "$GITHUB_SHA" || true)
+          else
+            base_sha=""
+          fi
+
+          if [ -n "$base_sha" ] && [ "$base_sha" != "$GITHUB_SHA" ]; then
+            GIT_ARGS=("$base_sha..$GITHUB_SHA" "--no-merges")
+            return 0
+          fi
+
+          echo "::error::Unable to determine the pushed commit range from the local checkout." >&2
+          echo "::error::Use actions/checkout with enough history (for example fetch-depth: 0) or provide custom git-args." >&2
+          exit 1
+        }
+
+        validate_max_commits_input
+
+        if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_EVENT_DELETED" = "true" ]; then
+          echo "::notice::Skipping validation for deleted ref push event."
+          exit 0
+        fi
+
+        if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+          PUSH_EVENT_COMMIT_COUNT=$(push_event_commit_count)
+          if [ "$PUSH_EVENT_COMMIT_COUNT" -eq 0 ]; then
+            echo "::notice::Skipping validation for push events with zero commits."
+            exit 0
+          fi
+          if [ "$PUSH_EVENT_COMMIT_COUNT" -gt "$INPUT_MAX_COMMITS" ]; then
+            echo "::warning::Skipping validation because the push event contains $PUSH_EVENT_COMMIT_COUNT commits, which exceeds max-commits=$INPUT_MAX_COMMITS." >&2
+            exit 0
+          fi
+        elif [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+          echo "::error::This action supports only push and pull_request events." >&2
+          exit 1
+        fi
+
         # Auto-detect git args
         if [ -n "$INPUT_GIT_ARGS" ]; then
           read -r -a GIT_ARGS <<< "$INPUT_GIT_ARGS"
         elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
           GIT_ARGS=("$GITHUB_BASE_SHA..$GITHUB_HEAD_SHA" "--no-merges")
-        else
-          GIT_ARGS=("-1")
+        elif [ "$GITHUB_EVENT_NAME" = "push" ]; then
+          set_push_git_args
+        fi
+
+        COMMIT_COUNT=$(selected_commit_count)
+        if [ "$COMMIT_COUNT" -gt "$INPUT_MAX_COMMITS" ]; then
+          echo "::warning::Skipping validation because $COMMIT_COUNT commits match the selected range, which exceeds max-commits=$INPUT_MAX_COMMITS." >&2
+          exit 0
         fi
 
         # Auto-discover config
