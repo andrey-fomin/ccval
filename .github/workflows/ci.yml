@@ -18,10 +18,44 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Cache cargo state
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-rust-stable-0.22.1-0.19.0-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-stable-
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Install cargo-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked --version 0.22.1
+          fi
+
+      - name: Install cargo-deny
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v cargo-deny >/dev/null 2>&1; then
+            cargo install cargo-deny --locked --version 0.19.0
+          fi
+
+      - name: Run cargo-audit
+        run: cargo audit
+
+      - name: Run cargo-deny
+        run: cargo deny check bans sources licenses
 
       - name: Check formatting
         run: cargo fmt --check
@@ -31,6 +65,44 @@ jobs:
 
       - name: Run tests
         run: cargo test
+
+  unused-dependencies:
+    name: Unused dependencies (nightly)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Cache cargo state
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-udeps-0.1.60-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-udeps-
+
+      # Nightly is intentionally unpinned here: cargo-udeps requires it, and
+      # this job is isolated so stable CI stays reproducible.
+      - name: Install nightly Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Install cargo-udeps
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v cargo-udeps >/dev/null 2>&1; then
+            cargo install cargo-udeps --locked --version 0.1.60
+          fi
+
+      - name: Run cargo-udeps
+        run: cargo +nightly udeps --all-targets
 
   commit-check:
     name: Validate commits
