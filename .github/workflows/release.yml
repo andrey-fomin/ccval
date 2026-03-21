@@ -175,6 +175,101 @@ jobs:
           TAG="${{ needs.setup.outputs.tag }}"
           gh release upload "$TAG" *.tar.gz *.tar.gz.sha256 *.zip *.zip.sha256 --clobber
 
+  update-homebrew-tap:
+    name: Open Homebrew tap PR
+    needs: [setup, upload-release-artifacts]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Generate tap repo GitHub App token
+        id: tap-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homebrew-tap
+
+      - name: Checkout tap repository
+        env:
+          TAP_REPO: ${{ github.repository_owner }}/homebrew-tap
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.TAP_REPO }}
+          token: ${{ steps.tap-token.outputs.token }}
+          path: homebrew-tap
+
+      - name: Update formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.setup.outputs.tag }}"
+          URL="https://github.com/andrey-fomin/ccval/archive/refs/tags/${TAG}.tar.gz"
+          ARCHIVE="/tmp/${TAG}.tar.gz"
+          curl -fL --retry 3 --retry-all-errors --output "$ARCHIVE" "$URL"
+          SHA256="$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)"
+          FORMULA="homebrew-tap/Formula/ccval.rb"
+
+          ruby - "$FORMULA" "$URL" "$SHA256" <<'RUBY'
+          path, url, sha256 = ARGV
+          content = File.read(path)
+
+          unless content.sub!(%r{url "https://github\.com/andrey-fomin/ccval/archive/refs/tags/v[^"]+\.tar\.gz"}, %{url "#{url}"})
+            abort("failed to update formula URL")
+          end
+
+          unless content.sub!(%r{sha256 "[0-9a-f]{64}"}, %{sha256 "#{sha256}"})
+            abort("failed to update formula sha256")
+          end
+
+          File.write(path, content)
+          RUBY
+
+      - name: Commit and open tap pull request
+        env:
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
+          TAP_REPO: ${{ github.repository_owner }}/homebrew-tap
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.setup.outputs.tag }}"
+          BRANCH="automation/update-ccval-${TAG}"
+          TITLE="chore(tap): update ccval to ${TAG}"
+
+          git -C homebrew-tap config user.name "github-actions[bot]"
+          git -C homebrew-tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git -C homebrew-tap diff --quiet -- Formula/ccval.rb; then
+            echo "Formula already up to date"
+            exit 0
+          fi
+
+          git -C homebrew-tap checkout -B "$BRANCH"
+          git -C homebrew-tap add Formula/ccval.rb
+          git -C homebrew-tap commit -m "$TITLE"
+          git -C homebrew-tap push --force origin "$BRANCH"
+
+          pr_url="$(gh pr list --repo "$TAP_REPO" --head "$BRANCH" --state open --json url --jq 'if length > 0 then .[0].url else "" end')"
+          if [ -n "$pr_url" ]; then
+            echo "Existing PR: $pr_url"
+            exit 0
+          fi
+
+          BODY_FILE="$(mktemp)"
+          {
+            printf '%s\n' '## Summary'
+            printf '%s\n' "- update the ccval Homebrew formula to ${TAG}"
+            printf '%s\n' '- refresh the source archive URL and SHA256 checksum'
+          } > "$BODY_FILE"
+
+          gh pr create \
+            --repo "$TAP_REPO" \
+            --base main \
+            --head "$BRANCH" \
+            --title "$TITLE" \
+            --body-file "$BODY_FILE"
+
   docker-alpine:
     name: Docker (Alpine)
     needs: [setup, upload-release-artifacts]
