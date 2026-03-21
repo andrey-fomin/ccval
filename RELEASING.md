@@ -21,6 +21,7 @@ After every push to `main`, GitHub Actions runs `release-plz`.
 - In that release PR, it updates `Cargo.toml`, `Cargo.lock`, and `CHANGELOG.md`.
 - When the release PR is merged, it creates the git tag and GitHub Release.
 - After the GitHub Release is published, GitHub Actions builds release archives and SHA256 checksum files for supported platforms.
+- After the release artifacts are uploaded, GitHub Actions opens or updates a PR in `andrey-fomin/homebrew-tap` with the new formula version and source archive checksum.
 - Linux and macOS artifacts are built on Linux whenever possible, using cross-compilation for macOS and `aarch64-unknown-linux-gnu`.
 - Windows artifacts are built on Windows runners.
 - Docker images are then published to Docker Hub for that same release.
@@ -74,7 +75,7 @@ Release automation uses a GitHub App to create releases that can trigger downstr
 
 2. Follow the prompts to:
    - Create the GitHub App with appropriate permissions
-   - Install it on this repository
+   - Install it on this repository and on `andrey-fomin/homebrew-tap`
    - Configure repository secrets and variables
 
 3. After setup, verify the configuration:
@@ -89,8 +90,8 @@ Release automation uses a GitHub App to create releases that can trigger downstr
 ### App permissions
 
 The GitHub App requires:
-- **Contents**: Read & write (for creating releases and tags)
-- **Pull requests**: Read & write (for creating release PRs)
+- **Contents**: Read & write (for creating releases, tags, and Homebrew tap update branches)
+- **Pull requests**: Read & write (for creating release PRs and Homebrew tap update PRs)
 
 ### How it works
 
@@ -98,8 +99,10 @@ The GitHub App requires:
 2. This token is passed to `release-plz/action` which creates/updates release PRs and releases
 3. Because the token comes from a GitHub App (not `GITHUB_TOKEN`), the resulting release event triggers the `Release` workflow
 4. The `Release` workflow builds and publishes artifacts and Docker images
+5. The same `Release` workflow opens or updates a PR in `andrey-fomin/homebrew-tap`
 
 ## Notes
 
 - release PRs are created automatically and should not be edited by hand unless needed
+- Homebrew tap update PRs are created automatically after each published release
 - crates.io publishing is intentionally disabled for now
