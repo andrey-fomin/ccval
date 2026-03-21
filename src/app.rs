@@ -96,10 +96,19 @@ fn load_inputs(
             .map_err(AppError::Git)?
             .into_iter()
             .map(|commit| CommitInput {
-                label: commit.id,
+                label: format_commit_label(&commit.id, &commit.message),
                 message: commit.message,
             })
             .collect()),
+    }
+}
+
+fn format_commit_label(commit_id: &str, message: &str) -> String {
+    let subject = message.lines().next().map(str::trim).unwrap_or_default();
+    if subject.is_empty() {
+        format!("commit {}", commit_id)
+    } else {
+        format!("commit {}: {}", commit_id, subject)
     }
 }
 
@@ -233,6 +242,19 @@ mod tests {
 
         assert!(!result.parse_failed);
         assert!(result.validation_failed);
+    }
+
+    #[test]
+    fn test_format_commit_label_includes_subject() {
+        assert_eq!(
+            format_commit_label("abc123", "feat: add feature\n\nbody\n"),
+            "commit abc123: feat: add feature"
+        );
+    }
+
+    #[test]
+    fn test_format_commit_label_omits_empty_subject() {
+        assert_eq!(format_commit_label("abc123", "\nbody\n"), "commit abc123");
     }
 
     #[test]
