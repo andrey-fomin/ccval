@@ -5,8 +5,8 @@ use crate::{parser, validator};
 
 #[derive(Debug)]
 pub struct RunOutcome {
-    pub parse_failed: bool,
-    pub validation_failed: bool,
+    pub parse_failures: usize,
+    pub validation_failures: usize,
 }
 
 #[derive(Debug)]
@@ -26,16 +26,15 @@ pub fn run(options: CliOptions, git_loader: &dyn GitLoader) -> Result<RunOutcome
         options.repository_path.as_deref(),
         options.trust_repo,
     )?;
-
-    let mut parse_failed = false;
-    let mut validation_failed = false;
+    let mut parse_failures = 0usize;
+    let mut validation_failures = 0usize;
 
     for input in inputs {
         match parser::parse(&input.message) {
             Ok(commit) => {
                 let errors = validator::validate(&commit, &config);
                 if !errors.is_empty() {
-                    validation_failed = true;
+                    validation_failures += 1;
                     if input.label != "stdin" {
                         eprintln!("{label}:", label = input.label);
                     }
@@ -45,7 +44,7 @@ pub fn run(options: CliOptions, git_loader: &dyn GitLoader) -> Result<RunOutcome
                 }
             }
             Err(error) => {
-                parse_failed = true;
+                parse_failures += 1;
                 if input.label != "stdin" {
                     eprintln!("{label}:", label = input.label);
                 }
@@ -55,8 +54,8 @@ pub fn run(options: CliOptions, git_loader: &dyn GitLoader) -> Result<RunOutcome
     }
 
     Ok(RunOutcome {
-        parse_failed,
-        validation_failed,
+        parse_failures,
+        validation_failures,
     })
 }
 
@@ -164,17 +163,27 @@ mod tests {
             _trust_repo: bool,
         ) -> Result<Vec<GitCommit>, GitError> {
             if let Some(ref err) = self.error {
-                return Err(GitError::GitFailed {
-                    code: match err {
-                        GitError::GitFailed { code, .. } => *code,
-                        _ => None,
+                return Err(match err {
+                    GitError::GitFailed { code, stderr } => GitError::GitFailed {
+                        code: *code,
+                        stderr: stderr.clone(),
                     },
-                    stderr: match err {
-                        GitError::GitFailed { stderr, .. } => stderr.clone(),
-                        GitError::Io(e) | GitError::CurrentDirResolution(e) => e.to_string(),
-                        GitError::InvalidOutput(s) => s.clone(),
-                        GitError::RepositoryPathResolution { error, .. } => error.to_string(),
-                    },
+                    GitError::Io(error) => {
+                        GitError::Io(std::io::Error::new(error.kind(), error.to_string()))
+                    }
+                    GitError::CurrentDirResolution(error) => GitError::CurrentDirResolution(
+                        std::io::Error::new(error.kind(), error.to_string()),
+                    ),
+                    GitError::InvalidOutput(message) => GitError::InvalidOutput(message.clone()),
+                    GitError::RepositoryPathResolution { path, error } => {
+                        GitError::RepositoryPathResolution {
+                            path: path.clone(),
+                            error: std::io::Error::new(error.kind(), error.to_string()),
+                        }
+                    }
+                    GitError::RepositoryPathNotDirectory { path } => {
+                        GitError::RepositoryPathNotDirectory { path: path.clone() }
+                    }
                 });
             }
             Ok(self.commits.clone())
@@ -233,7 +242,8 @@ mod tests {
             &loader,
         )
         .unwrap();
-        assert!(!file_result.parse_failed && !file_result.validation_failed);
+        assert_eq!(file_result.parse_failures, 0);
+        assert_eq!(file_result.validation_failures, 0);
         assert_eq!(loader.seen_args.borrow().as_ref(), None);
     }
 
@@ -294,8 +304,8 @@ mod tests {
         };
         let result = run(options, &loader).unwrap();
 
-        assert!(result.parse_failed);
-        assert!(result.validation_failed);
+        assert_eq!(result.parse_failures, 1);
+        assert_eq!(result.validation_failures, 1);
     }
 
     #[test]
