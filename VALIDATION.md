@@ -29,7 +29,10 @@ footers:
 - `body` is everything between the blank line after the header and the first footer, including its trailing newline when present
 - `footer-token` and `footer-value` apply to every footer
 - `footer-value` includes its trailing newline
+- for `Token #value` footers such as `Closes #123`, the stored footer value is `123\n` (without `#`)
 - `footers.<name>` applies to a specific footer value such as `Closes`
+
+Footer values may span multiple lines until the next recognized footer.
 
 ## Available Rules
 
@@ -47,6 +50,8 @@ footers:
 - `max-length` checks the full field length exactly as stored
 - `max-line-length` checks each line separately
 - for fields that include a trailing newline, `max-line-length` ignores that trailing newline when measuring line length
+- for fields that include a trailing newline, `regexes` match the stored text including that newline
+- for fields that include a trailing newline, `values` compares after stripping that final newline
 
 This means `max-length` and `max-line-length` are not interchangeable.
 
@@ -101,6 +106,12 @@ footers:
 - `strict` - `default` plus header length limits and common type/scope restrictions
 
 Start with a preset and override only the rules you need.
+
+Merge behavior:
+
+- command-line `-p/--preset` overrides `preset:` inside the config file
+- rule properties you omit keep the preset's values
+- `regexes: []` explicitly clears inherited preset regexes for that field
 
 ## Validation Errors
 

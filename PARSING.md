@@ -46,7 +46,11 @@ Footers are recognized in these forms:
 - `BREAKING CHANGE: value`
 - `BREAKING CHANGE #value`
 
+For custom footer tokens, `Token` follows the same identifier rules as `type` and `scope`.
+
 A footer is recognized only after the blank-line separator. Footer-like lines in the body remain part of the body.
+
+Footer values may continue on following lines until the next recognized footer. For `Token #value` and `BREAKING CHANGE #value`, the parsed footer value does not include the `#`.
 
 ## Parse Errors
 

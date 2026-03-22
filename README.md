@@ -111,6 +111,12 @@ ccval -- origin/main..HEAD
 ccval -r /path/to/repo -- HEAD~10..HEAD
 ```
 
+`--repository` changes where Git reads commits from. Config auto-discovery still happens in the current working directory, so use `--config` too when the target repository has its own config file:
+
+```bash
+ccval -r /path/to/repo -c /path/to/repo/conventional-commits.yaml -- HEAD~10..HEAD
+```
+
 ### Validate a message file
 
 ```bash
@@ -212,6 +218,12 @@ ccval -c .github/conventional-commits.yaml -- origin/main..HEAD
 - `default` - formatting rules for description spacing and newline handling in body and footer values
 - `strict` - `default` plus header length limits and common type and scope restrictions
 
+When a config file and preset are both used:
+
+- `-p/--preset` takes precedence over `preset:` in the config file
+- rules omitted in your config inherit from the preset
+- `regexes: []` clears preset regex rules for that field
+
 Use a preset from the command line without changing your config file:
 
 ```bash
@@ -261,6 +273,8 @@ Override git arguments:
     git-args: origin/main..HEAD --no-merges
 ```
 
+Note: `git-args` is parsed as a whitespace-separated list of arguments by the action; shell-style quoting/escaping is not supported, and arguments that contain spaces cannot be passed as a single argument. Auto-detected behavior such as adding `--no-merges` applies only when `git-args` is not set.
+
 Limit checked commits:
 
 ```yaml
@@ -269,9 +283,11 @@ Limit checked commits:
     max-commits: "250"
 ```
 
-The action supports `push` and `pull_request` events, discovers `conventional-commits.yaml` or `.github/conventional-commits.yaml`, skips merge commits in pull requests, skips deleted-ref and zero-commit pushes, and limits validation to 100 commits by default.
+The action supports `push` and `pull_request` events, discovers `conventional-commits.yaml` or `.github/conventional-commits.yaml`, skips merge commits in its auto-detected ranges, skips deleted-ref and zero-commit pushes, and limits validation to 100 commits by default.
 
 For push events, it prefers the exact pushed range from local history. If the pushed `before` commit is not available locally, it falls back to the default-branch merge-base when possible and otherwise fails with a clear error.
+
+If either the push event itself or the selected commit range exceeds `max-commits`, the action skips validation, emits a warning, and exits successfully.
 
 Make sure your workflow fetches enough history, for example with `fetch-depth: 0`, so the required commit range is available.
 
