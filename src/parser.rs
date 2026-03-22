@@ -325,341 +325,325 @@ pub fn parse(message: &str) -> Result<Commit, ParseError> {
 mod tests {
     use super::*;
 
-    fn assert_ok(message: &str) -> Commit {
-        parse(message).unwrap()
+    #[derive(Clone)]
+    struct ExpectedFooter {
+        token: &'static str,
+        value: &'static str,
     }
 
-    fn assert_err(message: &str) -> ParseError {
-        parse(message).unwrap_err()
+    struct ExpectedCommit {
+        message: &'static str,
+        header: &'static str,
+        r#type: &'static str,
+        scope: Option<&'static str>,
+        breaking: bool,
+        description: &'static str,
+        body: Option<&'static str>,
+        footers: Vec<ExpectedFooter>,
     }
 
-    #[test]
-    fn ok_header_minimal() {
-        let commit = assert_ok("type1: description text\n");
-        assert_eq!(commit.r#type, "type1");
-        assert_eq!(commit.scope, None);
-        assert!(!commit.breaking);
-        assert_eq!(commit.description, "description text");
-        assert_eq!(commit.body, None);
-        assert!(commit.footers.is_empty());
-    }
-
-    #[test]
-    fn ok_header_with_scope() {
-        let commit = assert_ok("type1(scope1): description text\n");
-        assert_eq!(commit.r#type, "type1");
-        assert_eq!(commit.scope, Some("scope1".to_string()));
-        assert!(!commit.breaking);
-        assert_eq!(commit.description, "description text");
-    }
-
-    #[test]
-    fn ok_header_with_breaking() {
-        let commit = assert_ok("type1!: description text\n");
-        assert_eq!(commit.r#type, "type1");
-        assert_eq!(commit.scope, None);
-        assert!(commit.breaking);
-        assert_eq!(commit.description, "description text");
-    }
-
-    #[test]
-    fn ok_header_preserves_description_surrounding_spaces() {
-        let commit = assert_ok("type1(scope1):  description \n");
-        assert_eq!(commit.r#type, "type1");
-        assert_eq!(commit.scope, Some("scope1".to_string()));
-        assert_eq!(commit.description, " description ");
-    }
-
-    #[test]
-    fn ok_body_basic() {
-        let commit = assert_ok("type1: description text\n\nbody line 1\nbody line 2\n");
-        assert_eq!(commit.body, Some("body line 1\nbody line 2\n".to_string()));
-    }
-
-    #[test]
-    fn ok_footers_multiple() {
-        let commit = assert_ok(
-            "type1: description text\n\nfooter-token1: footer value 1\nfooter-token2: footer value 2\n",
-        );
-        assert_eq!(commit.footers.len(), 2);
-        assert_eq!(commit.footers[0].token, "footer-token1");
-        assert_eq!(commit.footers[0].value, "footer value 1\n");
-        assert_eq!(commit.footers[1].token, "footer-token2");
-        assert_eq!(commit.footers[1].value, "footer value 2\n");
-    }
-
-    #[test]
-    fn ok_full_commit() {
-        let commit = assert_ok(
-            "type1(scope1)!: description text\n\nbody line 1\nbody line 2\n\nfooter-token1: footer value 1\nfooter-token2: footer value 2\n",
-        );
-        assert_eq!(commit.r#type, "type1");
-        assert_eq!(commit.scope, Some("scope1".to_string()));
-        assert!(commit.breaking);
-        assert_eq!(commit.description, "description text");
-        assert_eq!(commit.body, Some("body line 1\nbody line 2\n".to_string()));
-        assert_eq!(commit.footers.len(), 2);
-        assert_eq!(commit.footers[0].token, "footer-token1");
-        assert_eq!(commit.footers[0].value, "footer value 1\n");
-        assert_eq!(commit.footers[1].token, "footer-token2");
-        assert_eq!(commit.footers[1].value, "footer value 2\n");
-    }
-
-    #[test]
-    fn ok_body_with_empty_lines() {
-        let commit = assert_ok("type1: description text\n\nbody line 1\n\nbody line 2\n");
+    fn assert_ok_commit(name: &str, input: &str, expected: ExpectedCommit) {
+        let commit = parse(input).unwrap();
+        assert_eq!(commit.message, expected.message, "case: {name}");
+        assert_eq!(commit.header, expected.header, "case: {name}");
+        assert_eq!(commit.r#type, expected.r#type, "case: {name}");
+        assert_eq!(commit.scope.as_deref(), expected.scope, "case: {name}");
+        assert_eq!(commit.breaking, expected.breaking, "case: {name}");
+        assert_eq!(commit.description, expected.description, "case: {name}");
+        assert_eq!(commit.body.as_deref(), expected.body, "case: {name}");
         assert_eq!(
-            commit.body,
-            Some("body line 1\n\nbody line 2\n".to_string())
+            commit
+                .footers
+                .iter()
+                .map(|f| (f.token.as_str(), f.value.as_str()))
+                .collect::<Vec<_>>(),
+            expected
+                .footers
+                .iter()
+                .map(|f| (f.token, f.value))
+                .collect::<Vec<_>>(),
+            "case: {name}"
         );
     }
 
-    #[test]
-    fn ok_footer_multiline_value() {
-        let commit =
-            assert_ok("type1: description text\n\nfooter-token1: footer line 1\nfooter line 2\n");
-        assert_eq!(commit.footers.len(), 1);
-        assert_eq!(commit.footers[0].token, "footer-token1");
-        assert_eq!(commit.footers[0].value, "footer line 1\nfooter line 2\n");
+    fn assert_err(name: &str, input: &str, expected: ParseError, expected_display: &str) {
+        let err = parse(input).unwrap_err();
+        assert_eq!(err, expected, "case: {name}");
+        assert_eq!(err.to_string(), expected_display, "case: {name}");
     }
 
     #[test]
-    fn ok_footer_breaking_change() {
-        let commit =
-            assert_ok("type1: description text\n\nBREAKING CHANGE: this is a breaking change\n");
-        assert_eq!(commit.footers.len(), 1);
-        assert_eq!(commit.footers[0].token, "BREAKING CHANGE");
-        assert_eq!(commit.footers[0].value, "this is a breaking change\n");
+    fn valid_parse_cases() {
+        for (name, input, expected) in [
+            (
+                "minimal header",
+                "type1: description text\n",
+                ExpectedCommit {
+                    message: "type1: description text\n",
+                    header: "type1: description text\n",
+                    r#type: "type1",
+                    scope: None,
+                    breaking: false,
+                    description: "description text",
+                    body: None,
+                    footers: vec![],
+                },
+            ),
+            (
+                "bare breaking header",
+                "feat!: description text\n",
+                ExpectedCommit {
+                    message: "feat!: description text\n",
+                    header: "feat!: description text\n",
+                    r#type: "feat",
+                    scope: None,
+                    breaking: true,
+                    description: "description text",
+                    body: None,
+                    footers: vec![],
+                },
+            ),
+            (
+                "breaking footer colon",
+                "type1: description text\n\nBREAKING CHANGE: change log\n",
+                ExpectedCommit {
+                    message: "type1: description text\n\nBREAKING CHANGE: change log\n",
+                    header: "type1: description text\n",
+                    r#type: "type1",
+                    scope: None,
+                    breaking: false,
+                    description: "description text",
+                    body: None,
+                    footers: vec![ExpectedFooter {
+                        token: "BREAKING CHANGE",
+                        value: "change log\n",
+                    }],
+                },
+            ),
+            (
+                "breaking footer hash",
+                "type1: description text\n\nBREAKING CHANGE #123\n",
+                ExpectedCommit {
+                    message: "type1: description text\n\nBREAKING CHANGE #123\n",
+                    header: "type1: description text\n",
+                    r#type: "type1",
+                    scope: None,
+                    breaking: false,
+                    description: "description text",
+                    body: None,
+                    footers: vec![ExpectedFooter {
+                        token: "BREAKING CHANGE",
+                        value: "123\n",
+                    }],
+                },
+            ),
+            (
+                "header with spaces preserved",
+                "type1(scope1):  description \n",
+                ExpectedCommit {
+                    message: "type1(scope1):  description \n",
+                    header: "type1(scope1):  description \n",
+                    r#type: "type1",
+                    scope: Some("scope1"),
+                    breaking: false,
+                    description: " description ",
+                    body: None,
+                    footers: vec![],
+                },
+            ),
+            (
+                "unicode text",
+                "föö(scöpé): décrïption text\n\nтело\n",
+                ExpectedCommit {
+                    message: "föö(scöpé): décrïption text\n\nтело\n",
+                    header: "föö(scöpé): décrïption text\n",
+                    r#type: "föö",
+                    scope: Some("scöpé"),
+                    breaking: false,
+                    description: "décrïption text",
+                    body: Some("тело\n"),
+                    footers: vec![],
+                },
+            ),
+            (
+                "full commit",
+                "type1(scope1)!: description text\n\nbody line 1\nbody line 2\n\nfooter-token1: footer value 1\nfooter-token2: footer value 2\n",
+                ExpectedCommit {
+                    message: "type1(scope1)!: description text\n\nbody line 1\nbody line 2\n\nfooter-token1: footer value 1\nfooter-token2: footer value 2\n",
+                    header: "type1(scope1)!: description text\n",
+                    r#type: "type1",
+                    scope: Some("scope1"),
+                    breaking: true,
+                    description: "description text",
+                    body: Some("body line 1\nbody line 2\n"),
+                    footers: vec![
+                        ExpectedFooter {
+                            token: "footer-token1",
+                            value: "footer value 1\n",
+                        },
+                        ExpectedFooter {
+                            token: "footer-token2",
+                            value: "footer value 2\n",
+                        },
+                    ],
+                },
+            ),
+            (
+                "body contains footer-like line",
+                "type1: description text\n\nbody line 1\nCloses #123\n",
+                ExpectedCommit {
+                    message: "type1: description text\n\nbody line 1\nCloses #123\n",
+                    header: "type1: description text\n",
+                    r#type: "type1",
+                    scope: None,
+                    breaking: false,
+                    description: "description text",
+                    body: Some("body line 1\nCloses #123\n"),
+                    footers: vec![],
+                },
+            ),
+            (
+                "footer-only commit",
+                "type1: description text\n\nCloses #123\nReviewed-by: Jane\n",
+                ExpectedCommit {
+                    message: "type1: description text\n\nCloses #123\nReviewed-by: Jane\n",
+                    header: "type1: description text\n",
+                    r#type: "type1",
+                    scope: None,
+                    breaking: false,
+                    description: "description text",
+                    body: None,
+                    footers: vec![
+                        ExpectedFooter {
+                            token: "Closes",
+                            value: "123\n",
+                        },
+                        ExpectedFooter {
+                            token: "Reviewed-by",
+                            value: "Jane\n",
+                        },
+                    ],
+                },
+            ),
+            (
+                "crlf with footer parsing",
+                "type1: description text\r\n\r\nbody line 1\r\n\r\nBREAKING CHANGE: change\r\n",
+                ExpectedCommit {
+                    message: "type1: description text\n\nbody line 1\n\nBREAKING CHANGE: change\n",
+                    header: "type1: description text\n",
+                    r#type: "type1",
+                    scope: None,
+                    breaking: false,
+                    description: "description text",
+                    body: Some("body line 1\n"),
+                    footers: vec![ExpectedFooter {
+                        token: "BREAKING CHANGE",
+                        value: "change\n",
+                    }],
+                },
+            ),
+            (
+                "scope identifier breadth",
+                "type1(a1): description text\n",
+                ExpectedCommit {
+                    message: "type1(a1): description text\n",
+                    header: "type1(a1): description text\n",
+                    r#type: "type1",
+                    scope: Some("a1"),
+                    breaking: false,
+                    description: "description text",
+                    body: None,
+                    footers: vec![],
+                },
+            ),
+        ] {
+            assert_ok_commit(name, input, expected);
+        }
     }
 
     #[test]
-    fn ok_footer_with_hash_separator() {
-        let commit = assert_ok("type1: description text\n\nCloses #123\n");
-        assert_eq!(commit.footers.len(), 1);
-        assert_eq!(commit.footers[0].token, "Closes");
-        assert_eq!(commit.footers[0].value, "123\n");
-    }
-
-    #[test]
-    fn ok_body_with_extra_blank_lines_before_footers() {
-        let commit = assert_ok(
-            "type1: description text\n\nbody line 1\n\n\nfooter-token1: footer value 1\n",
-        );
-        assert_eq!(commit.body, Some("body line 1\n\n".to_string()));
-        assert_eq!(commit.footers.len(), 1);
-        assert_eq!(commit.footers[0].token, "footer-token1");
-    }
-
-    #[test]
-    fn ok_body_can_start_with_newline_and_footer_value_can_end_with_double_newline() {
-        let commit = assert_ok(
-            "type1(scope1): description text\n\n\nbody line 1\n\n\nfooter-token1: footer value 1\n\n",
-        );
-        assert_eq!(commit.body, Some("\nbody line 1\n\n".to_string()));
-        assert_eq!(commit.footers.len(), 1);
-        assert_eq!(commit.footers[0].token, "footer-token1");
-        assert_eq!(commit.footers[0].value, "footer value 1\n\n");
-    }
-
-    #[test]
-    fn ok_body_can_start_with_multiple_newlines() {
-        let commit = assert_ok("type1: description text\n\n\n\nbody line 1\n");
-        assert_eq!(commit.body, Some("\n\nbody line 1\n".to_string()));
-        assert!(commit.footers.is_empty());
-    }
-
-    #[test]
-    fn ok_footers_can_be_separated_by_multiple_empty_lines() {
-        let commit = assert_ok(
-            "type1: description text\n\nfooter-token1: footer value 1\n\nfooter-token2: footer value 2\n",
-        );
-        assert_eq!(commit.body, None);
-        assert_eq!(commit.footers.len(), 2);
-        assert_eq!(commit.footers[0].token, "footer-token1");
-        assert_eq!(commit.footers[0].value, "footer value 1\n\n");
-        assert_eq!(commit.footers[1].token, "footer-token2");
-        assert_eq!(commit.footers[1].value, "footer value 2\n");
-    }
-
-    #[test]
-    fn ok_footer_only_message_can_end_with_extra_empty_lines() {
-        let commit = assert_ok("type1: description text\n\nCloses #123\n\n\n");
-        assert_eq!(commit.body, None);
-        assert_eq!(commit.footers.len(), 1);
-        assert_eq!(commit.footers[0].token, "Closes");
-        assert_eq!(commit.footers[0].value, "123\n\n\n");
-    }
-
-    #[test]
-    fn ok_body_can_contain_footer_like_line_without_separator() {
-        let commit = assert_ok("type1: description text\n\nbody line 1\nCloses #123\n");
-        assert_eq!(commit.body, Some("body line 1\nCloses #123\n".to_string()));
-        assert!(commit.footers.is_empty());
-    }
-
-    #[test]
-    fn ok_footers_without_body() {
-        let commit = assert_ok("type1: description text\n\nCloses #123\nReviewed-by: Jane\n");
-        assert_eq!(commit.body, None);
-        assert_eq!(commit.footers.len(), 2);
-    }
-
-    #[test]
-    fn ok_footer_breaking_change_with_hash_separator() {
-        let commit = assert_ok("type1: description text\n\nBREAKING CHANGE #123\n");
-        assert_eq!(commit.footers.len(), 1);
-        assert_eq!(commit.footers[0].token, "BREAKING CHANGE");
-        assert_eq!(commit.footers[0].value, "123\n");
-    }
-
-    #[test]
-    fn ko_header_without_trailing_newline() {
-        let err = assert_err("type1: description text");
-        assert_eq!(err, ParseError::NoNewlineAtEndOfHeader);
-    }
-
-    #[test]
-    fn ok_crlf_line_endings_are_normalized() {
-        let commit = assert_ok("type1: description text\r\n\r\nbody line 1\r\nCloses:value\r\n");
-        assert_eq!(commit.header, "type1: description text\n");
-        assert_eq!(commit.body, Some("body line 1\nCloses:value\n".to_string()));
-        assert_eq!(
-            commit.message,
-            "type1: description text\n\nbody line 1\nCloses:value\n"
-        );
-    }
-
-    #[test]
-    fn ko_tab_is_rejected() {
-        let err = assert_err("type1: description\ttext\n");
-        assert_eq!(err, ParseError::NonPrintableCharacter('\t'));
-    }
-
-    #[test]
-    fn ko_bare_carriage_return_is_rejected() {
-        let err = assert_err("type1: description text\r");
-        assert_eq!(err, ParseError::NonPrintableCharacter('\r'));
-    }
-
-    #[test]
-    fn ko_nul_is_rejected() {
-        let err = assert_err("type1: description\0text\n");
-        assert_eq!(err, ParseError::NonPrintableCharacter('\0'));
-    }
-
-    #[test]
-    fn ok_unicode_text_is_allowed() {
-        let commit = assert_ok("föö(scöpé): décrïption text\n\nтело\n");
-        assert_eq!(commit.r#type, "föö");
-        assert_eq!(commit.scope, Some("scöpé".to_string()));
-        assert_eq!(commit.description, "décrïption text");
-        assert_eq!(commit.body, Some("тело\n".to_string()));
-    }
-
-    #[test]
-    fn ko_body_without_trailing_newline() {
-        let err = assert_err("type1: description text\n\nbody line 1\nbody line 2");
-        assert_eq!(err, ParseError::NoNewlineAtEndOfBody);
-    }
-
-    #[test]
-    fn ko_footer_without_trailing_newline() {
-        let err = assert_err("type1: description text\n\nCloses #123");
-        assert_eq!(err, ParseError::NoNewlineAtEndOfFooter);
-    }
-
-    #[test]
-    fn ko_missing_type() {
-        let err = assert_err(": description text\n");
-        assert_eq!(err, ParseError::MissingType);
-    }
-
-    #[test]
-    fn ko_missing_colon_and_space_after_type() {
-        let err = assert_err("type1:\n");
-        assert_eq!(err, ParseError::MissingColonAndSpace(5));
-    }
-
-    #[test]
-    fn ko_empty_description() {
-        let err = assert_err("type1: \n");
-        assert_eq!(err, ParseError::MissingDescription(7));
-    }
-
-    #[test]
-    fn ko_missing_colon_and_space_after_type_without_scope() {
-        let err = assert_err("type1\n");
-        assert_eq!(err, ParseError::MissingColonAndSpace(5));
-    }
-
-    #[test]
-    fn ko_type_with_spaces() {
-        let err = assert_err("my type: description text\n");
-        assert_eq!(err, ParseError::MissingColonAndSpace(2));
-    }
-
-    #[test]
-    fn ko_missing_colon_and_space_after_scope() {
-        let err = assert_err("type1(scope1)\n");
-        assert_eq!(err, ParseError::MissingColonAndSpace(13));
-    }
-
-    #[test]
-    fn ko_unclosed_scope() {
-        let err = assert_err("type1(scope1: description text\n");
-        assert_eq!(err, ParseError::UnclosedScope(6));
-    }
-
-    #[test]
-    fn ko_empty_scope() {
-        let err = assert_err("type1(): description text\n");
-        assert_eq!(err, ParseError::InvalidScope(6));
-    }
-
-    #[test]
-    fn ko_scope_with_spaces() {
-        let err = assert_err("type1(my scope): description text\n");
-        assert_eq!(err, ParseError::InvalidScope(6));
-    }
-
-    #[test]
-    fn ko_scope_ending_with_dash() {
-        let err = assert_err("type1(scope-): description text\n");
-        assert_eq!(err, ParseError::InvalidScope(6));
-    }
-
-    #[test]
-    fn ko_missing_blank_line_before_body() {
-        let err = assert_err("type1: description text\nbody line 1\n");
-        assert_eq!(err, ParseError::MissingBlankLineAfterHeader);
-    }
-
-    #[test]
-    fn ko_missing_blank_line_before_footer() {
-        let err = assert_err("type1: description text\nCloses #123\n");
-        assert_eq!(err, ParseError::MissingBlankLineAfterHeader);
-    }
-
-    #[test]
-    fn ko_blank_line_without_body_or_footer() {
-        let err = assert_err("type1: description text\n\n");
-        assert_eq!(err, ParseError::MissingBodyOrFooterAfterBlankLine);
-    }
-
-    #[test]
-    fn ok_footer_like_text_without_separator_stays_in_body() {
-        let commit =
-            assert_ok("type1: description text\n\nbody line 1\nCloses:value\nCloses#123\n");
-        assert_eq!(
-            commit.body,
-            Some("body line 1\nCloses:value\nCloses#123\n".to_string())
-        );
-        assert!(commit.footers.is_empty());
-    }
-
-    #[test]
-    fn ok_scope_allows_single_character_and_numbers() {
-        let commit = assert_ok("type1(a1): description text\n");
-        assert_eq!(commit.scope, Some("a1".to_string()));
+    fn invalid_parse_cases() {
+        for (name, input, expected, display) in [
+            (
+                "missing type",
+                ": description text\n",
+                ParseError::MissingType,
+                "Parsing error at line 1:0: Missing commit type",
+            ),
+            (
+                "missing colon after type",
+                "type1:\n",
+                ParseError::MissingColonAndSpace(5),
+                "Parsing error at line 1:5: Missing colon and space after type/scope",
+            ),
+            (
+                "missing description",
+                "type1: \n",
+                ParseError::MissingDescription(7),
+                "Parsing error at line 1:7: Missing description",
+            ),
+            (
+                "unclosed scope",
+                "type1(scope1: description text\n",
+                ParseError::UnclosedScope(6),
+                "Parsing error at line 1:6: Unclosed scope",
+            ),
+            (
+                "invalid scope",
+                "type1(my scope): description text\n",
+                ParseError::InvalidScope(6),
+                "Parsing error at line 1:6: Invalid scope",
+            ),
+            (
+                "missing blank line before body",
+                "type1: description text\nbody line 1\n",
+                ParseError::MissingBlankLineAfterHeader,
+                "Parsing error: Body or footer must be separated from the header by a blank line",
+            ),
+            (
+                "blank line without body",
+                "type1: description text\n\n",
+                ParseError::MissingBodyOrFooterAfterBlankLine,
+                "Parsing error: Expected body or footer after blank line",
+            ),
+            (
+                "header newline",
+                "type1: description text",
+                ParseError::NoNewlineAtEndOfHeader,
+                "Parsing error: Header must end with a newline",
+            ),
+            (
+                "body newline",
+                "type1: description text\n\nbody line 1\nbody line 2",
+                ParseError::NoNewlineAtEndOfBody,
+                "Parsing error: Body must end with a newline",
+            ),
+            (
+                "footer newline",
+                "type1: description text\n\nCloses #123",
+                ParseError::NoNewlineAtEndOfFooter,
+                "Parsing error: Footer must end with a newline",
+            ),
+            (
+                "control char",
+                "type1: description\ttext\n",
+                ParseError::NonPrintableCharacter('\t'),
+                "Parsing error: Non-printable character U+0009 is not allowed",
+            ),
+            (
+                "carriage return",
+                "type1: description\rtext\n",
+                ParseError::NonPrintableCharacter('\r'),
+                "Parsing error: Non-printable character U+000D is not allowed",
+            ),
+            (
+                "nul byte",
+                "type1: description\0text\n",
+                ParseError::NonPrintableCharacter('\0'),
+                "Parsing error: Non-printable character U+0000 is not allowed",
+            ),
+        ] {
+            assert_err(name, input, expected, display);
+        }
     }
 }

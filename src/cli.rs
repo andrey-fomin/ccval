@@ -303,6 +303,28 @@ mod tests {
         parse_args(args.iter().map(|arg| (*arg).to_string()))
     }
 
+    fn assert_run(action: CliAction, expected: CliOptions) {
+        assert_eq!(action, CliAction::Run(expected));
+    }
+
+    fn assert_git_mode(action: CliAction, expected_args: Vec<&str>, trust_repo: bool) {
+        assert_eq!(
+            action,
+            CliAction::Run(CliOptions {
+                config_path: None,
+                preset: None,
+                repository_path: None,
+                trust_repo,
+                input_mode: InputMode::Git {
+                    git_args: expected_args
+                        .into_iter()
+                        .map(|arg| arg.to_string())
+                        .collect(),
+                },
+            })
+        );
+    }
+
     fn make_options(
         config_path: Option<String>,
         preset: Option<String>,
@@ -335,34 +357,139 @@ mod tests {
     }
 
     #[test]
-    fn parse_config_path_long_flag() {
-        let action = parse_from(&["--config", "custom.yaml"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options(
-                Some("custom.yaml".to_string()),
-                None,
-                None,
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
-        );
+    fn parse_config_path_matches_short_and_long_flags() {
+        for args in [["--config", "custom.yaml"], ["-c", "custom.yaml"]] {
+            let action = parse_from(&args).unwrap();
+            assert_run(
+                action,
+                make_options(
+                    Some("custom.yaml".to_string()),
+                    None,
+                    None,
+                    InputMode::Git {
+                        git_args: vec!["-1".to_string()],
+                    },
+                ),
+            );
+        }
     }
 
     #[test]
-    fn parse_config_path_short_flag() {
-        let action = parse_from(&["-c", "custom.yaml"]).unwrap();
+    fn accepts_alias_parity() {
+        for (args, expected) in [
+            (
+                ["--preset", "strict"],
+                make_options(
+                    None,
+                    Some("strict".to_string()),
+                    None,
+                    InputMode::Git {
+                        git_args: vec!["-1".to_string()],
+                    },
+                ),
+            ),
+            (
+                ["-p", "default"],
+                make_options(
+                    None,
+                    Some("default".to_string()),
+                    None,
+                    InputMode::Git {
+                        git_args: vec!["-1".to_string()],
+                    },
+                ),
+            ),
+            (
+                ["--file", "COMMIT_EDITMSG"],
+                make_options(
+                    None,
+                    None,
+                    None,
+                    InputMode::File {
+                        path: "COMMIT_EDITMSG".to_string(),
+                    },
+                ),
+            ),
+            (
+                ["-f", "COMMIT_EDITMSG"],
+                make_options(
+                    None,
+                    None,
+                    None,
+                    InputMode::File {
+                        path: "COMMIT_EDITMSG".to_string(),
+                    },
+                ),
+            ),
+            (
+                ["--repository", "/path/to/repo"],
+                make_options(
+                    None,
+                    None,
+                    Some("/path/to/repo".to_string()),
+                    InputMode::Git {
+                        git_args: vec!["-1".to_string()],
+                    },
+                ),
+            ),
+            (
+                ["-r", "/path/to/repo"],
+                make_options(
+                    None,
+                    None,
+                    Some("/path/to/repo".to_string()),
+                    InputMode::Git {
+                        git_args: vec!["-1".to_string()],
+                    },
+                ),
+            ),
+        ] {
+            assert_run(parse_from(&args).unwrap(), expected);
+        }
+
+        assert_eq!(parse_from(&["-h"]).unwrap(), CliAction::ShowHelp);
         assert_eq!(
+            parse_from(&["-T"]).unwrap(),
+            CliAction::Run(make_options_with_trust(
+                None,
+                None,
+                None,
+                true,
+                InputMode::Git {
+                    git_args: vec!["-1".to_string()]
+                }
+            ))
+        );
+        assert_eq!(parse_from(&["--help"]).unwrap(), CliAction::ShowHelp);
+    }
+
+    #[test]
+    fn rejects_help_with_file_or_repository() {
+        for args in [
+            ["--help", "--file", "msg.txt"],
+            ["--help", "--repository", "/repo"],
+        ] {
+            assert_eq!(
+                parse_from(&args).unwrap_err(),
+                "--help/-h must be used without other arguments. Run with --help or -h for usage information."
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_separator_with_flags_before_it() {
+        let action = parse_from(&["-c", "custom.yaml", "-r", "/repo", "-T", "--", "HEAD"]).unwrap();
+        assert_run(
             action,
-            CliAction::Run(make_options(
+            make_options_with_trust(
                 Some("custom.yaml".to_string()),
                 None,
-                None,
+                Some("/repo".to_string()),
+                true,
                 InputMode::Git {
-                    git_args: vec!["-1".to_string()],
+                    git_args: vec!["HEAD".to_string()],
                 },
-            ))
+            ),
         );
     }
 
@@ -384,18 +511,7 @@ mod tests {
 
     #[test]
     fn parse_default_git_mode() {
-        let action = parse_from(&[]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options(
-                None,
-                None,
-                None,
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
-        );
+        assert_git_mode(parse_from(&[]).unwrap(), vec!["-1"], false);
     }
 
     #[test]
@@ -434,6 +550,23 @@ mod tests {
         assert_eq!(
             parse_from(&["--stdin", "--file", "msg.txt"]).unwrap_err(),
             "--stdin cannot be combined with --file/-f. Run with --help or -h for usage information.",
+        );
+    }
+
+    #[test]
+    fn parse_trust_repo_with_repository_is_accepted() {
+        let action = parse_from(&["-r", "/repo", "-T"]).unwrap();
+        assert_run(
+            action,
+            make_options_with_trust(
+                None,
+                None,
+                Some("/repo".to_string()),
+                true,
+                InputMode::Git {
+                    git_args: vec!["-1".to_string()],
+                },
+            ),
         );
     }
 
@@ -491,22 +624,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_file_mode_short_flag() {
-        let action = parse_from(&["-f", "COMMIT_EDITMSG"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options(
-                None,
-                None,
-                None,
-                InputMode::File {
-                    path: "COMMIT_EDITMSG".to_string(),
-                },
-            ))
-        );
-    }
-
-    #[test]
     fn parse_file_missing_value() {
         assert_eq!(
             parse_from(&["--file"]).unwrap_err(),
@@ -515,42 +632,34 @@ mod tests {
     }
 
     #[test]
+    fn rejects_short_missing_values() {
+        for (args, flag) in [(["-p"], "-p"), (["-r"], "-r"), (["-f"], "-f")] {
+            assert_eq!(
+                parse_from(&args).unwrap_err(),
+                format!("missing value for {flag}. Run with --help or -h for usage information.")
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_combination_orders() {
+        for args in [
+            &["--stdin", "--file", "msg.txt"][..],
+            &["--file", "msg.txt", "--stdin"][..],
+            &["-T", "--stdin"][..],
+            &["--stdin", "-T"][..],
+            &["-T", "-f", "msg.txt"][..],
+            &["-f", "msg.txt", "-T"][..],
+        ] {
+            assert!(parse_from(args).is_err());
+        }
+    }
+
+    #[test]
     fn parse_repeated_config_is_rejected() {
         assert_eq!(
             parse_from(&["--config", "a.yaml", "-c", "b.yaml"]).unwrap_err(),
             "--config/-c may be specified only once. Run with --help or -h for usage information.",
-        );
-    }
-
-    #[test]
-    fn parse_preset_long_flag() {
-        let action = parse_from(&["--preset", "strict"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options(
-                None,
-                Some("strict".to_string()),
-                None,
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
-        );
-    }
-
-    #[test]
-    fn parse_preset_short_flag() {
-        let action = parse_from(&["-p", "default"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options(
-                None,
-                Some("default".to_string()),
-                None,
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
         );
     }
 
@@ -636,38 +745,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_repository_long_flag() {
-        let action = parse_from(&["--repository", "/path/to/repo"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options(
-                None,
-                None,
-                Some("/path/to/repo".to_string()),
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
-        );
-    }
-
-    #[test]
-    fn parse_repository_short_flag() {
-        let action = parse_from(&["-r", "/path/to/repo"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options(
-                None,
-                None,
-                Some("/path/to/repo".to_string()),
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
-        );
-    }
-
-    #[test]
     fn parse_repository_with_git_args() {
         let action = parse_from(&["-r", "/path/to/repo", "--", "HEAD~5..HEAD"]).unwrap();
         assert_eq!(
@@ -732,23 +809,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_trust_repo_long_flag() {
-        let action = parse_from(&["--trust-repo"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options_with_trust(
-                None,
-                None,
-                None,
-                true,
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
-        );
-    }
-
-    #[test]
     fn parse_preset_with_config() {
         let action = parse_from(&["-c", "config.yaml", "-p", "strict"]).unwrap();
         assert_eq!(
@@ -769,40 +829,6 @@ mod tests {
         assert_eq!(
             parse_from(&["--help", "--preset", "strict"]).unwrap_err(),
             "--help/-h must be used without other arguments. Run with --help or -h for usage information.",
-        );
-    }
-
-    #[test]
-    fn parse_trust_repo_short_flag() {
-        let action = parse_from(&["-T"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options_with_trust(
-                None,
-                None,
-                None,
-                true,
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
-        );
-    }
-
-    #[test]
-    fn parse_trust_repo_with_repository() {
-        let action = parse_from(&["-r", "/repo", "-T"]).unwrap();
-        assert_eq!(
-            action,
-            CliAction::Run(make_options_with_trust(
-                None,
-                None,
-                Some("/repo".to_string()),
-                true,
-                InputMode::Git {
-                    git_args: vec!["-1".to_string()],
-                },
-            ))
         );
     }
 
@@ -859,6 +885,22 @@ mod tests {
                 true,
                 InputMode::Git {
                     git_args: vec!["HEAD~5..HEAD".to_string()],
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_separator_passes_flag_like_git_args() {
+        let action = parse_from(&["--", "--stdin", "-T", "-h"]).unwrap();
+        assert_eq!(
+            action,
+            CliAction::Run(make_options(
+                None,
+                None,
+                None,
+                InputMode::Git {
+                    git_args: vec!["--stdin".to_string(), "-T".to_string(), "-h".to_string()],
                 },
             ))
         );

@@ -202,9 +202,19 @@ mod tests {
             "\u{001e}abc123\u{001f}feat: subject\n\n\u{001e}def456\u{001f}fix: bug\n\n",
         )
         .unwrap();
-        assert_eq!(commits.len(), 2);
-        assert_eq!(commits[0].id, "abc123");
-        assert_eq!(commits[1].id, "def456");
+        assert_eq!(
+            commits,
+            vec![
+                GitCommit {
+                    id: "abc123".to_string(),
+                    message: "feat: subject\n".to_string(),
+                },
+                GitCommit {
+                    id: "def456".to_string(),
+                    message: "fix: bug\n".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]
@@ -302,5 +312,32 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(error, GitError::RepositoryPathResolution { .. }));
+    }
+
+    #[test]
+    fn build_git_log_command_reports_current_dir_resolution_errors() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let invalid_current_dir = temp_dir.path().join("missing-current-dir");
+        let error = build_git_log_command_with_current_dir(&[], None, true, &invalid_current_dir)
+            .unwrap_err();
+
+        assert!(matches!(error, GitError::CurrentDirResolution(_)));
+    }
+
+    #[test]
+    fn build_git_log_command_untrusted_no_repo_has_no_safe_directory() {
+        let command = build_git_log_command_with_current_dir(
+            &["HEAD".to_string()],
+            None,
+            false,
+            std::env::temp_dir().as_path(),
+        )
+        .unwrap();
+
+        assert!(
+            !command_args(&command)
+                .iter()
+                .any(|arg| arg.contains("safe.directory"))
+        );
     }
 }

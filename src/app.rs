@@ -124,6 +124,32 @@ fn read_stdin() -> Result<String, std::io::Error> {
 mod tests {
     use super::*;
     use crate::git::GitCommit;
+    use std::cell::RefCell;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    type GitLoaderCall = (Vec<String>, Option<String>, bool);
+
+    struct SpyGitLoader {
+        seen_args: RefCell<Option<GitLoaderCall>>,
+        commits: Vec<GitCommit>,
+    }
+
+    impl GitLoader for SpyGitLoader {
+        fn load_commits(
+            &self,
+            args: &[String],
+            repository_path: Option<&str>,
+            trust_repo: bool,
+        ) -> Result<Vec<GitCommit>, GitError> {
+            self.seen_args.borrow_mut().replace((
+                args.to_vec(),
+                repository_path.map(str::to_string),
+                trust_repo,
+            ));
+            Ok(self.commits.clone())
+        }
+    }
 
     struct MockGitLoader {
         commits: Vec<GitCommit>,
@@ -166,68 +192,99 @@ mod tests {
     }
 
     #[test]
-    fn test_git_mode_empty_commits() {
-        let loader = MockGitLoader {
+    fn test_format_commit_label_cases() {
+        for (message, expected) in [
+            (
+                "feat: add feature\n\nbody\n",
+                "commit abc123: feat: add feature",
+            ),
+            ("\nbody\n", "commit abc123"),
+            (
+                "feat: add feature  \n\nbody\n",
+                "commit abc123: feat: add feature",
+            ),
+        ] {
+            assert_eq!(format_commit_label("abc123", message), expected);
+        }
+    }
+
+    #[test]
+    fn test_run_file_path_and_loader_forwarding() {
+        let mut file = NamedTempFile::new().unwrap();
+        std::io::Write::write_all(&mut file, b"feat: file commit\n").unwrap();
+        file.flush().unwrap();
+        let file_path = file.into_temp_path();
+
+        let loader = SpyGitLoader {
+            seen_args: RefCell::new(None),
             commits: vec![],
-            error: None,
         };
-        let options = make_options(InputMode::Git {
-            git_args: vec!["HEAD".to_string()],
-        });
-        let result = run(options, &loader).unwrap();
-        assert!(!result.parse_failed);
-        assert!(!result.validation_failed);
+
+        let file_result = run(
+            CliOptions {
+                config_path: None,
+                preset: None,
+                repository_path: None,
+                trust_repo: false,
+                input_mode: InputMode::File {
+                    path: file_path.as_os_str().to_string_lossy().into_owned(),
+                },
+            },
+            &loader,
+        )
+        .unwrap();
+        assert!(!file_result.parse_failed && !file_result.validation_failed);
+        assert_eq!(loader.seen_args.borrow().as_ref(), None);
     }
 
     #[test]
-    fn test_git_mode_valid_commit() {
-        let loader = MockGitLoader {
-            commits: vec![GitCommit {
-                id: "abc123".to_string(),
-                message: "feat: valid commit\n".to_string(),
-            }],
-            error: None,
+    fn test_run_file_error_reports_path() {
+        let loader = SpyGitLoader {
+            seen_args: RefCell::new(None),
+            commits: vec![],
         };
-        let options = make_options(InputMode::Git {
-            git_args: vec!["HEAD".to_string()],
-        });
-        let result = run(options, &loader).unwrap();
-        assert!(!result.parse_failed);
-        assert!(!result.validation_failed);
+
+        let result = run(
+            CliOptions {
+                config_path: None,
+                preset: None,
+                repository_path: None,
+                trust_repo: false,
+                input_mode: InputMode::File {
+                    path: "definitely-missing-file.txt".to_string(),
+                },
+            },
+            &loader,
+        );
+
+        assert!(
+            matches!(result, Err(AppError::FileIo { path, .. }) if path == "definitely-missing-file.txt")
+        );
+        assert_eq!(loader.seen_args.borrow().as_ref(), None);
     }
 
     #[test]
-    fn test_git_mode_parse_error() {
-        let loader = MockGitLoader {
-            commits: vec![GitCommit {
-                id: "abc123".to_string(),
-                message: "invalid commit without newline".to_string(),
-            }],
-            error: None,
-        };
-        let options = make_options(InputMode::Git {
-            git_args: vec!["HEAD".to_string()],
-        });
-        let result = run(options, &loader).unwrap();
-        assert!(result.parse_failed);
-    }
-
-    #[test]
-    fn test_git_mode_validation_error_with_config() {
-        let config_content = "type:\n  values:\n    - feat\n    - fix\n";
-        let config_file = std::env::temp_dir().join("ccval_test_config.yaml");
-        std::fs::write(&config_file, config_content).unwrap();
-        let config_path = config_file.to_str().unwrap().to_string();
+    fn test_git_mode_mixed_parse_and_validation_failures() {
+        let mut config_file = NamedTempFile::new().unwrap();
+        std::io::Write::write_all(&mut config_file, b"type:\n  values:\n    - feat\n").unwrap();
+        config_file.flush().unwrap();
+        let config_path = config_file.into_temp_path();
 
         let loader = MockGitLoader {
-            commits: vec![GitCommit {
-                id: "abc123".to_string(),
-                message: "invalid_type: description\n".to_string(),
-            }],
+            commits: vec![
+                GitCommit {
+                    id: "abc123".to_string(),
+                    message: "invalid commit without newline".to_string(),
+                },
+                GitCommit {
+                    id: "def456".to_string(),
+                    message: "fix: not allowed\n".to_string(),
+                },
+            ],
             error: None,
         };
         let options = CliOptions {
-            config_path: Some(config_path),
+            config_path: Some(config_path.as_os_str().to_string_lossy().into_owned()),
             preset: None,
             repository_path: None,
             trust_repo: false,
@@ -237,23 +294,8 @@ mod tests {
         };
         let result = run(options, &loader).unwrap();
 
-        let _ = std::fs::remove_file(&config_file);
-
-        assert!(!result.parse_failed);
+        assert!(result.parse_failed);
         assert!(result.validation_failed);
-    }
-
-    #[test]
-    fn test_format_commit_label_includes_subject() {
-        assert_eq!(
-            format_commit_label("abc123", "feat: add feature\n\nbody\n"),
-            "commit abc123: feat: add feature"
-        );
-    }
-
-    #[test]
-    fn test_format_commit_label_omits_empty_subject() {
-        assert_eq!(format_commit_label("abc123", "\nbody\n"), "commit abc123");
     }
 
     #[test]
@@ -270,5 +312,32 @@ mod tests {
         });
         let result = run(options, &loader);
         assert!(matches!(result, Err(AppError::Git(_))));
+    }
+
+    #[test]
+    fn test_git_loader_forwards_flags() {
+        let loader = SpyGitLoader {
+            seen_args: RefCell::new(None),
+            commits: vec![],
+        };
+        let options = CliOptions {
+            config_path: None,
+            preset: None,
+            repository_path: Some("/repo".to_string()),
+            trust_repo: true,
+            input_mode: InputMode::Git {
+                git_args: vec!["HEAD~1..HEAD".to_string()],
+            },
+        };
+
+        let _ = run(options, &loader).unwrap();
+        assert_eq!(
+            loader.seen_args.borrow().as_ref().unwrap(),
+            &(
+                vec!["HEAD~1..HEAD".to_string()],
+                Some("/repo".to_string()),
+                true
+            )
+        );
     }
 }

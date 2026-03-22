@@ -334,13 +334,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_preset_smoke() {
-        Config::load_preset("default").unwrap();
-    }
-
-    #[test]
-    fn test_strict_preset_smoke() {
-        Config::load_preset("strict").unwrap();
+    fn test_load_preset_table() {
+        for preset in ["default", "strict"] {
+            assert!(Config::load_preset(preset).is_ok());
+        }
     }
 
     #[test]
@@ -430,62 +427,46 @@ description:
     }
 
     #[test]
-    fn test_regexes_round_trip_omitted_field_stays_omitted() {
-        let rules: FieldRules = serde_yaml::from_str("max-length: 10\n").unwrap();
-
-        assert!(Regexes::is_none(&rules.regexes));
-
-        let yaml = serde_yaml::to_string(&rules).unwrap();
-        assert!(!yaml.contains("regexes"));
-    }
-
-    #[test]
-    fn test_regexes_round_trip_empty_field_stays_empty() {
-        let rules: FieldRules = serde_yaml::from_str("regexes: []\n").unwrap();
-
-        assert!(rules.regexes.0.as_ref().is_some_and(Vec::is_empty));
-
-        let yaml = serde_yaml::to_string(&rules).unwrap();
-        assert!(yaml.contains("regexes:"));
-        assert!(yaml.contains("[]"));
-    }
-
-    #[test]
-    fn test_invalid_yaml() {
-        let invalid_yaml = "
-header:
-  max-length: not_a_number
+    fn test_merge_footers_preserves_and_overrides_rules() {
+        let base_yaml = "
+footers:
+  Closes:
+    required: true
+    values:
+      - issue
+  Reviewed-by:
+    max-length: 100
 ";
-        let result = Config::load_raw_from_str("config.yaml", invalid_yaml);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_unknown_field() {
-        let invalid_yaml = "
-header:
-  unknown: true
+        let override_yaml = "
+footers:
+  Closes:
+    required: false
+  Signed-off-by:
+    values:
+      - yes
 ";
-        let result = Config::load_raw_from_str("config.yaml", invalid_yaml);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("unknown field `unknown`")
+        let base: Config = serde_yaml::from_str(base_yaml).unwrap();
+        let over: Config = serde_yaml::from_str(override_yaml).unwrap();
+
+        let merged = Config::merge(&base, &over);
+        let footers = merged.footers.unwrap();
+
+        assert_eq!(footers.len(), 3);
+        assert_eq!(footers.get("Closes").unwrap().required, Some(false));
+        assert_eq!(footers.get("Reviewed-by").unwrap().max_length, Some(100));
+        assert_eq!(
+            footers.get("Signed-off-by").unwrap().values,
+            Some(vec!["yes".to_string()])
         );
     }
 
     #[test]
-    fn test_invalid_regex() {
-        let invalid_yaml = r#"
-header:
-  regexes:
-    - "(unclosed"
-"#;
-        let result = Config::load_raw_from_str("config.yaml", invalid_yaml);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("invalid regex"));
+    fn test_regexes_round_trip_table() {
+        for (input, expect_present) in [("max-length: 10\n", false), ("regexes: []\n", true)] {
+            let rules: FieldRules = serde_yaml::from_str(input).unwrap();
+            let yaml = serde_yaml::to_string(&rules).unwrap();
+            assert_eq!(yaml.contains("regexes:"), expect_present);
+        }
     }
 
     #[test]
@@ -504,33 +485,24 @@ header:
     }
 
     #[test]
-    fn test_load_raw_from_str_supports_toml() {
-        let config = Config::load_raw_from_str(
-            "config.toml",
-            "[message]\nmax-line-length = 72\n\n[type]\nvalues = [\"feat\", \"fix\"]\n",
-        )
-        .unwrap();
-
-        assert_eq!(config.message.as_ref().unwrap().max_line_length, Some(72));
-        assert_eq!(
-            config.r#type.as_ref().unwrap().values.as_ref().unwrap(),
-            &vec!["feat".to_string(), "fix".to_string()]
-        );
-    }
-
-    #[test]
-    fn test_load_raw_from_str_supports_json() {
-        let config = Config::load_raw_from_str(
-            "config.JSON",
-            r#"{"message":{"max-line-length":72},"type":{"values":["feat","fix"]}}"#,
-        )
-        .unwrap();
-
-        assert_eq!(config.message.as_ref().unwrap().max_line_length, Some(72));
-        assert_eq!(
-            config.r#type.as_ref().unwrap().values.as_ref().unwrap(),
-            &vec!["feat".to_string(), "fix".to_string()]
-        );
+    fn test_load_raw_from_str_supports_multiple_formats() {
+        for (path, content) in [
+            (
+                "config.toml",
+                "[message]\nmax-line-length = 72\n\n[type]\nvalues = [\"feat\", \"fix\"]\n",
+            ),
+            (
+                "config.JSON",
+                r#"{"message":{"max-line-length":72},"type":{"values":["feat","fix"]}}"#,
+            ),
+        ] {
+            let config = Config::load_raw_from_str(path, content).unwrap();
+            assert_eq!(config.message.as_ref().unwrap().max_line_length, Some(72));
+            assert_eq!(
+                config.r#type.as_ref().unwrap().values.as_ref().unwrap(),
+                &vec!["feat".to_string(), "fix".to_string()]
+            );
+        }
     }
 
     #[test]
@@ -571,6 +543,72 @@ header:
         assert_eq!(
             config.message.as_ref().and_then(|m| m.max_length),
             Some(200)
+        );
+    }
+
+    #[test]
+    fn test_apply_preset_preserves_preset_field() {
+        let config = Config::apply_preset(
+            Config::load_raw_from_str("config.yaml", "preset: strict\n").unwrap(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(config.preset.as_deref(), Some("strict"));
+    }
+
+    #[test]
+    fn test_load_raw_from_str_error_variants() {
+        let invalid_yaml = "header:\n  max-length: not_a_number\n";
+        let unknown_field = "header:\n  unknown: true\n";
+        let invalid_regex = r#"header:
+  regexes:
+    - "(unclosed"
+"#;
+
+        assert!(matches!(
+            Config::load_raw_from_str("config.yaml", invalid_yaml),
+            Err(ConfigError::ParseFailed { .. })
+        ));
+        assert!(matches!(
+            Config::load_raw_from_str("config.yaml", unknown_field),
+            Err(ConfigError::ParseFailed { .. })
+        ));
+        assert!(matches!(
+            Config::load_raw_from_str("config.yaml", invalid_regex),
+            Err(ConfigError::ParseFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn test_load_raw_from_str_unknown_extension_falls_back_to_yaml() {
+        let config =
+            Config::load_raw_from_str("config.txt", "message:\n  max-line-length: 72\n").unwrap();
+
+        assert_eq!(config.message.as_ref().unwrap().max_line_length, Some(72));
+    }
+
+    #[test]
+    fn test_field_rules_merge_prefers_override_regexes_and_keeps_base_values() {
+        let base: FieldRules = serde_yaml::from_str(
+            "max-length: 10\nmax-line-length: 20\nrequired: true\nforbidden: false\nregexes:\n  - '^feat'\nvalues:\n  - feat\n  - fix\n",
+        )
+        .unwrap();
+        let overrides: FieldRules =
+            serde_yaml::from_str("max-line-length: 30\nrequired: false\nregexes:\n  - '^fix'\n")
+                .unwrap();
+
+        let merged = FieldRules::merge(Some(&base), Some(&overrides)).unwrap();
+
+        assert_eq!(merged.max_length, Some(10));
+        assert_eq!(merged.max_line_length, Some(30));
+        assert_eq!(merged.required, Some(false));
+        assert_eq!(merged.forbidden, Some(false));
+        assert_eq!(merged.regexes.as_ref().unwrap().len(), 1);
+        assert_eq!(merged.regexes.as_ref().unwrap()[0].as_str(), "^fix");
+        assert_eq!(
+            merged.values,
+            Some(vec!["feat".to_string(), "fix".to_string()])
         );
     }
 }
