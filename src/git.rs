@@ -22,6 +22,8 @@ pub enum GitError {
         #[source]
         error: std::io::Error,
     },
+    #[error("repository path '{path}' is not a directory")]
+    RepositoryPathNotDirectory { path: String },
     #[error("failed to resolve or canonicalize current working directory: {0}")]
     CurrentDirResolution(#[source] std::io::Error),
     #[error("git command failed with code {code:?}: {stderr}")]
@@ -57,12 +59,26 @@ fn load_commits(
     repository_path: Option<&str>,
     trust_repo: bool,
 ) -> Result<Vec<GitCommit>, GitError> {
+    if let Some(path) = repository_path {
+        let metadata =
+            std::fs::metadata(path).map_err(|error| GitError::RepositoryPathResolution {
+                path: path.to_string(),
+                error,
+            })?;
+        if !metadata.is_dir() {
+            return Err(GitError::RepositoryPathNotDirectory {
+                path: path.to_string(),
+            });
+        }
+    }
+
     let output = build_git_log_command(git_args, repository_path, trust_repo)?.output()?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(GitError::GitFailed {
             code: output.status.code(),
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            stderr: stderr.trim().to_string(),
         });
     }
 

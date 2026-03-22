@@ -131,23 +131,23 @@ fn default_git_mode_exits_zero() {
 }
 
 #[test]
-fn invalid_type_exits_two_for_parse_error() {
+fn invalid_type_exits_content_invalid() {
     let (_, stderr, code) = run_with_stdin(&["--stdin"], "feat\n");
-    assert_eq!(code, 2);
+    assert_eq!(code, 65);
     assert!(stderr.contains("Parsing error"));
 }
 
 #[test]
-fn missing_newline_exits_two() {
+fn missing_newline_exits_content_invalid() {
     let (_, stderr, code) = run_with_stdin(&["--stdin"], "feat: missing newline");
-    assert_eq!(code, 2);
+    assert_eq!(code, 65);
     assert!(stderr.contains("newline"));
 }
 
 #[test]
-fn missing_colon_exits_two() {
+fn missing_colon_exits_content_invalid() {
     let (_, stderr, code) = run_with_stdin(&["--stdin"], "feat missing colon\n");
-    assert_eq!(code, 2);
+    assert_eq!(code, 65);
     assert!(stderr.contains("colon"));
 }
 
@@ -161,7 +161,7 @@ fn help_flag_exits_zero() {
 #[test]
 fn file_mode_invalid_commit() {
     let (_, stderr, code) = run_with_file(&[], "invalid\n");
-    assert_eq!(code, 2);
+    assert_eq!(code, 65);
     assert!(stderr.contains("Parsing error"));
 }
 
@@ -184,7 +184,7 @@ fn custom_config_path() {
         &["-c", config_file.path().to_str().unwrap(), "--stdin"],
         "feat: invalid type\n",
     );
-    assert_eq!(code_invalid, 1);
+    assert_eq!(code_invalid, 65);
     assert!(stderr.contains("not in allowed values"));
 }
 
@@ -192,7 +192,7 @@ fn custom_config_path() {
 fn preset_flag_applies_strict_validation() {
     let message = format!("feat: {}\n", "a".repeat(60));
     let (_, stderr, code) = run_with_stdin(&["-p", "strict", "--stdin"], &message);
-    assert_eq!(code, 1);
+    assert_eq!(code, 65);
     assert!(stderr.contains("Validation error"));
 }
 
@@ -227,7 +227,7 @@ fn config_keeps_preset_regexes_when_override_omits_regexes() {
         &["-c", config_file.path().to_str().unwrap(), "--stdin"],
         "feat: add feature.\n",
     );
-    assert_eq!(code, 1);
+    assert_eq!(code, 65);
     assert!(stderr.contains("does not match regex"));
 }
 
@@ -242,7 +242,7 @@ fn stdin_mode_explicit() {
 #[test]
 fn non_printable_char_rejected() {
     let (_, stderr, code) = run_with_stdin(&["--stdin"], "feat: tab\there\n");
-    assert_eq!(code, 2);
+    assert_eq!(code, 65);
     assert!(stderr.contains("Non-printable"));
 }
 
@@ -302,26 +302,26 @@ fn repository_flag_validates_from_alternate_repo() {
 }
 
 #[test]
-fn missing_config_exits_three() {
+fn missing_config_exits_config_error() {
     let (_, stderr, code) = run_with_stdin(
         &["--config", "definitely-missing-config.yaml", "--stdin"],
         "feat: valid commit\n",
     );
-    assert_eq!(code, 3);
+    assert_eq!(code, 78);
     assert!(stderr.contains("Config error"));
 }
 
 #[test]
-fn missing_file_exits_five() {
+fn missing_file_exits_input_unavailable() {
     let (_, stderr, code) = run_with_stdin(&["--file", "definitely-missing.txt"], "");
-    assert_eq!(code, 5);
+    assert_eq!(code, 66);
     assert!(stderr.contains("Failed to read commit message file"));
 }
 
 #[test]
-fn invalid_cli_usage_exits_four() {
+fn invalid_cli_usage_exits_usage_error() {
     let (_, stderr, code) = run_with_stdin(&["--unknown"], "");
-    assert_eq!(code, 4);
+    assert_eq!(code, 64);
     assert!(stderr.contains("Error: unknown argument"));
 }
 
@@ -332,21 +332,37 @@ fn file_mode_valid_commit() {
 }
 
 #[test]
-fn git_failure_exits_six() {
+fn git_failure_exits_input_unavailable() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
 
     let mut cmd = Command::new(binary_path());
     cmd.arg("-r").arg(temp_dir.path().join("missing-repo"));
     let output = cmd.output().expect("Failed to execute process");
 
-    assert_eq!(output.status.code(), Some(6));
+    assert_eq!(output.status.code(), Some(66));
     assert!(String::from_utf8_lossy(&output.stderr).contains("Error running git"));
+}
+
+#[test]
+fn repository_flag_to_file_exits_usage_error() {
+    let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+
+    let output = Command::new(binary_path())
+        .arg("-r")
+        .arg(temp_file.path())
+        .output()
+        .expect("Failed to execute process");
+
+    assert_eq!(output.status.code(), Some(64));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Error running git"));
+    assert!(stderr.contains("not a directory"));
 }
 
 #[test]
 fn file_mode_reports_validation_failure() {
     let (_, stderr, code) = run_with_file(&[], "foo: invalid type\n");
 
-    assert_eq!(code, 1);
+    assert_eq!(code, 65);
     assert!(stderr.contains("Validation error"));
 }

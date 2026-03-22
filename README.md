@@ -354,12 +354,13 @@ Examples:
 ## Exit Codes
 
 - `0` success
-- `1` validation failed
-- `2` parse error
-- `3` config error
-- `4` CLI usage error
-- `5` I/O error
-- `6` git error
+- `64` usage error
+- `65` content invalid
+- `66` input unavailable
+- `70` internal error
+- `74` I/O error
+- `77` permission error
+- `78` config error
 
 ## Reference
 
