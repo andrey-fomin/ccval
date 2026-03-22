@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/andrey-fomin/ccval/compare/v0.5.0...v0.6.0) - 2026-03-22
+
+### Added
+
+- redesign exit codes
+
+### Changed
+
+- *(ci)* add dependency checks
+- *(ci)* tighten dependency policy
+- *(ci)* tighten clippy checks
+- *(ci)* satisfy clippy pedantic
+- harmonize and expand coverage
+
+### Documentation
+
+- *(readme)* refine Docker example
+- *(readme)* clarify documented behavior
+
 ## [0.5.0](https://github.com/andrey-fomin/ccval/compare/v0.4.0...v0.5.0) - 2026-03-21
 
 ### Added
