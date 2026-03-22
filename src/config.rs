@@ -28,7 +28,7 @@ pub struct Config {
     pub message: Option<FieldRules>,
     pub header: Option<FieldRules>,
     #[serde(rename = "type")]
-    pub commit_type: Option<FieldRules>,
+    pub r#type: Option<FieldRules>,
     pub scope: Option<FieldRules>,
     pub description: Option<FieldRules>,
     pub body: Option<FieldRules>,
@@ -44,47 +44,72 @@ pub struct FieldRules {
     pub max_line_length: Option<usize>,
     pub required: Option<bool>,
     pub forbidden: Option<bool>,
-    #[serde(with = "regexes_serde", default)]
-    pub regexes: Option<Vec<regex_lite::Regex>>,
+    #[serde(default, skip_serializing_if = "Regexes::is_none")]
+    pub regexes: Regexes,
     pub values: Option<Vec<String>>,
 }
 
-mod regexes_serde {
-    use regex_lite::Regex;
-    use serde::{self, Deserialize, Deserializer, Serializer};
+#[derive(Debug, Clone, Default)]
+pub struct Regexes(Option<Vec<regex_lite::Regex>>);
 
-    pub fn serialize<S>(regexes: &Option<Vec<Regex>>, serializer: S) -> Result<S::Ok, S::Error>
+impl Regexes {
+    pub fn is_none(regexes: &Self) -> bool {
+        regexes.0.is_none()
+    }
+
+    pub fn as_ref(&self) -> Option<&[regex_lite::Regex]> {
+        self.0.as_deref()
+    }
+}
+
+impl From<Option<Vec<regex_lite::Regex>>> for Regexes {
+    fn from(value: Option<Vec<regex_lite::Regex>>) -> Self {
+        Self(value)
+    }
+}
+
+impl serde::Serialize for Regexes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
-        match regexes {
-            Some(regexes) => serializer.collect_seq(regexes.iter().map(|regex| regex.as_str())),
+        use serde::ser::SerializeSeq;
+
+        match &self.0 {
+            Some(regexes) => {
+                let mut seq = serializer.serialize_seq(Some(regexes.len()))?;
+                for regex in regexes {
+                    seq.serialize_element(regex.as_str())?;
+                }
+                seq.end()
+            }
             None => serializer.serialize_none(),
         }
     }
+}
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<Regex>>, D::Error>
+impl<'de> serde::Deserialize<'de> for Regexes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        let opt = Option::<Vec<String>>::deserialize(deserializer)?;
-        match opt {
+        let regexes = Option::<Vec<String>>::deserialize(deserializer)?;
+        match regexes {
             Some(regexes) => {
                 let mut compiled = Vec::with_capacity(regexes.len());
                 for pattern in regexes {
-                    match Regex::new(&pattern) {
+                    match regex_lite::Regex::new(&pattern) {
                         Ok(regex) => compiled.push(regex),
                         Err(err) => {
                             return Err(serde::de::Error::custom(format!(
-                                "invalid regex '{}': {}",
-                                pattern, err
+                                "invalid regex '{pattern}': {err}"
                             )));
                         }
                     }
                 }
-                Ok(Some(compiled))
+                Ok(Self(Some(compiled)))
             }
-            None => Ok(None),
+            None => Ok(Self(None)),
         }
     }
 }
@@ -100,7 +125,7 @@ impl FieldRules {
                 max_line_length: o.max_line_length.or(b.max_line_length),
                 required: o.required.or(b.required),
                 forbidden: o.forbidden.or(b.forbidden),
-                regexes: o.regexes.clone().or_else(|| b.regexes.clone()),
+                regexes: o.regexes.clone().0.or_else(|| b.regexes.clone().0).into(),
                 values: o.values.clone().or_else(|| b.values.clone()),
             }),
         }
@@ -113,7 +138,7 @@ impl Config {
             preset: None,
             message: None,
             header: None,
-            commit_type: None,
+            r#type: None,
             scope: None,
             description: None,
             body: None,
@@ -142,7 +167,7 @@ impl Config {
         let extension = path
             .extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_ascii_lowercase());
+            .map(str::to_ascii_lowercase);
 
         match extension.as_deref() {
             Some("toml") => toml::from_str(config_str).map_err(|error| ConfigError::ParseFailed {
@@ -180,10 +205,7 @@ impl Config {
             preset: overrides.preset.clone().or_else(|| base.preset.clone()),
             message: FieldRules::merge(base.message.as_ref(), overrides.message.as_ref()),
             header: FieldRules::merge(base.header.as_ref(), overrides.header.as_ref()),
-            commit_type: FieldRules::merge(
-                base.commit_type.as_ref(),
-                overrides.commit_type.as_ref(),
-            ),
+            r#type: FieldRules::merge(base.r#type.as_ref(), overrides.r#type.as_ref()),
             scope: FieldRules::merge(base.scope.as_ref(), overrides.scope.as_ref()),
             description: FieldRules::merge(
                 base.description.as_ref(),
@@ -234,7 +256,7 @@ impl Config {
 
     fn apply_preset(local_config: Config, preset: Option<&str>) -> Result<Config, ConfigError> {
         let chosen_preset = preset
-            .map(|name| name.to_string())
+            .map(str::to_owned)
             .or_else(|| local_config.preset.clone());
         let config_without_preset = Self::without_preset(local_config);
 
@@ -293,7 +315,7 @@ impl Config {
                         });
                     }
                 },
-                Ok(false) => continue,
+                Ok(false) => {}
                 Err(error) => {
                     return Err(ConfigError::ReadFailed {
                         path: full_path.to_string_lossy().into_owned(),
@@ -335,7 +357,7 @@ message:
 
         assert_eq!(config.message.as_ref().unwrap().max_length, Some(1000));
         assert_eq!(config.message.as_ref().unwrap().max_line_length, None);
-        assert!(config.commit_type.is_none());
+        assert!(config.r#type.is_none());
     }
 
     #[test]
@@ -378,8 +400,54 @@ type:
         assert_eq!(msg_rules.max_line_length, Some(100)); // inherited
         assert_eq!(msg_rules.max_length, Some(500)); // overridden
 
-        let type_rules = merged.commit_type.unwrap();
+        let type_rules = merged.r#type.unwrap();
         assert_eq!(type_rules.values.unwrap(), vec!["docs"]); // overridden
+    }
+
+    #[test]
+    fn test_merge_keeps_base_regexes_when_override_omits_regexes() {
+        let base_yaml = "
+description:
+  regexes:
+    - '^[^ ].*'
+    - '^.*[^.]$'
+";
+        let override_yaml = "
+description:
+  max-length: 100
+";
+        let base: Config = serde_yaml::from_str(base_yaml).unwrap();
+        let over: Config = serde_yaml::from_str(override_yaml).unwrap();
+
+        let merged = Config::merge(&base, &over);
+        let description_rules = merged.description.unwrap();
+
+        assert_eq!(description_rules.max_length, Some(100));
+        let regexes = description_rules.regexes.as_ref().unwrap();
+        assert_eq!(regexes.len(), 2);
+        assert_eq!(regexes[0].as_str(), "^[^ ].*");
+        assert_eq!(regexes[1].as_str(), "^.*[^.]$");
+    }
+
+    #[test]
+    fn test_regexes_round_trip_omitted_field_stays_omitted() {
+        let rules: FieldRules = serde_yaml::from_str("max-length: 10\n").unwrap();
+
+        assert!(Regexes::is_none(&rules.regexes));
+
+        let yaml = serde_yaml::to_string(&rules).unwrap();
+        assert!(!yaml.contains("regexes"));
+    }
+
+    #[test]
+    fn test_regexes_round_trip_empty_field_stays_empty() {
+        let rules: FieldRules = serde_yaml::from_str("regexes: []\n").unwrap();
+
+        assert!(rules.regexes.0.as_ref().is_some_and(Vec::is_empty));
+
+        let yaml = serde_yaml::to_string(&rules).unwrap();
+        assert!(yaml.contains("regexes:"));
+        assert!(yaml.contains("[]"));
     }
 
     #[test]
@@ -426,7 +494,7 @@ header:
         let config = Config::load_auto_discovered_config_in(temp_dir.path()).unwrap();
         assert!(config.message.is_none());
         assert!(config.header.is_none());
-        assert!(config.commit_type.is_none());
+        assert!(config.r#type.is_none());
     }
 
     #[test]
@@ -445,13 +513,7 @@ header:
 
         assert_eq!(config.message.as_ref().unwrap().max_line_length, Some(72));
         assert_eq!(
-            config
-                .commit_type
-                .as_ref()
-                .unwrap()
-                .values
-                .as_ref()
-                .unwrap(),
+            config.r#type.as_ref().unwrap().values.as_ref().unwrap(),
             &vec!["feat".to_string(), "fix".to_string()]
         );
     }
@@ -466,13 +528,7 @@ header:
 
         assert_eq!(config.message.as_ref().unwrap().max_line_length, Some(72));
         assert_eq!(
-            config
-                .commit_type
-                .as_ref()
-                .unwrap()
-                .values
-                .as_ref()
-                .unwrap(),
+            config.r#type.as_ref().unwrap().values.as_ref().unwrap(),
             &vec!["feat".to_string(), "fix".to_string()]
         );
     }

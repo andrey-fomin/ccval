@@ -35,7 +35,7 @@ fn run_with_file(args: &[&str], file_content: &str) -> (String, String, i32) {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let unique_id = COUNTER.fetch_add(1, Ordering::SeqCst);
 
-    let temp_file = std::env::temp_dir().join(format!("ccval_test_commit_{}.txt", unique_id));
+    let temp_file = std::env::temp_dir().join(format!("ccval_test_commit_{unique_id}.txt"));
     std::fs::write(&temp_file, file_content).expect("Failed to write temp file");
 
     let mut cmd = Command::new(binary_path());
@@ -146,6 +146,35 @@ fn preset_flag_applies_strict_validation() {
 fn preset_flag_allows_default_validation() {
     let (_, _, code) = run_with_stdin(&["-p", "default", "--stdin"], "feat: add feature\n");
     assert_eq!(code, 0);
+}
+
+#[test]
+fn config_can_clear_preset_regexes() {
+    let config_content = "preset: strict\ndescription:\n  regexes: []\n";
+    let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp config file");
+    std::fs::write(config_file.path(), config_content).expect("Failed to write config");
+
+    // This message ends with a period, which violates strict preset description regex
+    let (_, _, code) = run_with_stdin(
+        &["-c", config_file.path().to_str().unwrap(), "--stdin"],
+        "feat: add feature.\n",
+    );
+    // Should pass because regexes were cleared
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn config_keeps_preset_regexes_when_override_omits_regexes() {
+    let config_content = "preset: strict\ndescription:\n  max-length: 100\n";
+    let config_file = tempfile::NamedTempFile::new().expect("Failed to create temp config file");
+    std::fs::write(config_file.path(), config_content).expect("Failed to write config");
+
+    let (_, stderr, code) = run_with_stdin(
+        &["-c", config_file.path().to_str().unwrap(), "--stdin"],
+        "feat: add feature.\n",
+    );
+    assert_eq!(code, 1);
+    assert!(stderr.contains("does not match regex"));
 }
 
 #[test]

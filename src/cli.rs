@@ -62,7 +62,48 @@ pub enum CliAction {
     ShowHelp,
 }
 
+struct SplitArgs {
+    before: Vec<String>,
+    after: Vec<String>,
+    saw_separator: bool,
+}
+
+#[derive(Default)]
+struct ParsedFlags {
+    config_path: Option<String>,
+    preset: Option<String>,
+    repository_path: Option<String>,
+    file_path: Option<String>,
+    stdin_mode: bool,
+    show_help: bool,
+    trust_repo: bool,
+}
+
 pub fn parse_args<I>(args: I) -> Result<CliAction, String>
+where
+    I: Iterator<Item = String>,
+{
+    let split_args = split_args(args);
+    let parsed_flags = parse_flag_options(split_args.before)?;
+
+    validate_help_usage(&parsed_flags, split_args.saw_separator)?;
+    if parsed_flags.show_help {
+        return Ok(CliAction::ShowHelp);
+    }
+
+    validate_option_combinations(&parsed_flags, split_args.saw_separator)?;
+    let input_mode = build_input_mode(&parsed_flags, split_args.after, split_args.saw_separator)?;
+
+    Ok(CliAction::Run(CliOptions {
+        config_path: parsed_flags.config_path,
+        preset: parsed_flags.preset,
+        repository_path: parsed_flags.repository_path,
+        trust_repo: parsed_flags.trust_repo,
+        input_mode,
+    }))
+}
+
+fn split_args<I>(args: I) -> SplitArgs
 where
     I: Iterator<Item = String>,
 {
@@ -80,178 +121,178 @@ where
         }
     }
 
-    let mut config_path = None;
-    let mut preset = None;
-    let mut repository_path = None;
-    let mut file_path = None;
-    let mut stdin_mode = false;
-    let mut show_help = false;
-    let mut trust_repo = false;
-    let mut args = before_separator.into_iter();
+    SplitArgs {
+        before: before_separator,
+        after: after_separator,
+        saw_separator: seen_separator,
+    }
+}
+
+fn parse_flag_options(args: Vec<String>) -> Result<ParsedFlags, String> {
+    let mut parsed_flags = ParsedFlags::default();
+    let mut args = args.into_iter();
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--help" | "-h" => show_help = true,
+            "--help" | "-h" => parsed_flags.show_help = true,
             "--trust-repo" | "-T" => {
-                if trust_repo {
-                    return Err(format!(
-                        "--trust-repo/-T may be specified only once. {}",
-                        HELP_HINT
-                    ));
-                }
-                trust_repo = true;
+                ensure_flag_not_set(parsed_flags.trust_repo, "--trust-repo/-T")?;
+                parsed_flags.trust_repo = true;
             }
             "--stdin" => {
-                if stdin_mode {
-                    return Err(format!("--stdin may be specified only once. {}", HELP_HINT));
-                }
-                stdin_mode = true;
+                ensure_flag_not_set(parsed_flags.stdin_mode, "--stdin")?;
+                parsed_flags.stdin_mode = true;
             }
             "--config" | "-c" => {
-                let Some(path) = args.next() else {
-                    return Err(format!("missing value for {}. {}", arg, HELP_HINT));
-                };
-                if config_path.is_some() {
-                    return Err(format!(
-                        "--config/-c may be specified only once. {}",
-                        HELP_HINT
-                    ));
-                }
-                config_path = Some(path);
+                let path = next_arg_value(&mut args, &arg)?;
+                ensure_option_not_set(parsed_flags.config_path.as_ref(), "--config/-c")?;
+                parsed_flags.config_path = Some(path);
             }
             "--preset" | "-p" => {
-                let Some(name) = args.next() else {
-                    return Err(format!("missing value for {}. {}", arg, HELP_HINT));
-                };
-                if preset.is_some() {
-                    return Err(format!(
-                        "--preset/-p may be specified only once. {}",
-                        HELP_HINT
-                    ));
-                }
-                preset = Some(name);
+                let preset = next_arg_value(&mut args, &arg)?;
+                ensure_option_not_set(parsed_flags.preset.as_ref(), "--preset/-p")?;
+                parsed_flags.preset = Some(preset);
             }
             "--repository" | "-r" => {
-                let Some(path) = args.next() else {
-                    return Err(format!("missing value for {}. {}", arg, HELP_HINT));
-                };
-                if repository_path.is_some() {
-                    return Err(format!(
-                        "--repository/-r may be specified only once. {}",
-                        HELP_HINT
-                    ));
-                }
-                repository_path = Some(path);
+                let path = next_arg_value(&mut args, &arg)?;
+                ensure_option_not_set(parsed_flags.repository_path.as_ref(), "--repository/-r")?;
+                parsed_flags.repository_path = Some(path);
             }
             "--file" | "-f" => {
-                let Some(path) = args.next() else {
-                    return Err(format!("missing value for {}. {}", arg, HELP_HINT));
-                };
-                if file_path.is_some() {
-                    return Err(format!(
-                        "--file/-f may be specified only once. {}",
-                        HELP_HINT
-                    ));
-                }
-                file_path = Some(path);
+                let path = next_arg_value(&mut args, &arg)?;
+                ensure_option_not_set(parsed_flags.file_path.as_ref(), "--file/-f")?;
+                parsed_flags.file_path = Some(path);
             }
-            _ => return Err(format!("unknown argument '{}'. {}", arg, HELP_HINT)),
+            _ => return Err(format!("unknown argument '{arg}'. {HELP_HINT}")),
         }
     }
 
-    if show_help {
-        if config_path.is_some()
-            || preset.is_some()
-            || repository_path.is_some()
-            || file_path.is_some()
-            || stdin_mode
-            || trust_repo
-            || seen_separator
-        {
-            return Err(format!(
-                "--help/-h must be used without other arguments. {}",
-                HELP_HINT
-            ));
-        }
-        return Ok(CliAction::ShowHelp);
-    }
+    Ok(parsed_flags)
+}
 
-    if stdin_mode && file_path.is_some() {
+fn validate_help_usage(parsed_flags: &ParsedFlags, seen_separator: bool) -> Result<(), String> {
+    if parsed_flags.show_help
+        && (parsed_flags.config_path.is_some()
+            || parsed_flags.preset.is_some()
+            || parsed_flags.repository_path.is_some()
+            || parsed_flags.file_path.is_some()
+            || parsed_flags.stdin_mode
+            || parsed_flags.trust_repo
+            || seen_separator)
+    {
         return Err(format!(
-            "--stdin cannot be combined with --file/-f. {}",
-            HELP_HINT
+            "--help/-h must be used without other arguments. {HELP_HINT}"
         ));
     }
 
-    if stdin_mode && repository_path.is_some() {
+    Ok(())
+}
+
+fn validate_option_combinations(
+    parsed_flags: &ParsedFlags,
+    seen_separator: bool,
+) -> Result<(), String> {
+    if parsed_flags.stdin_mode && parsed_flags.file_path.is_some() {
         return Err(format!(
-            "--repository/-r cannot be used with --stdin. {}",
-            HELP_HINT
+            "--stdin cannot be combined with --file/-f. {HELP_HINT}"
         ));
     }
 
-    if file_path.is_some() && repository_path.is_some() {
+    if parsed_flags.stdin_mode && parsed_flags.repository_path.is_some() {
         return Err(format!(
-            "--repository/-r cannot be used with --file/-f. {}",
-            HELP_HINT
+            "--repository/-r cannot be used with --stdin. {HELP_HINT}"
         ));
     }
 
-    if trust_repo && stdin_mode {
+    if parsed_flags.file_path.is_some() && parsed_flags.repository_path.is_some() {
         return Err(format!(
-            "--trust-repo/-T cannot be used with --stdin. {}",
-            HELP_HINT
+            "--repository/-r cannot be used with --file/-f. {HELP_HINT}"
         ));
     }
 
-    if trust_repo && file_path.is_some() {
+    if parsed_flags.trust_repo && parsed_flags.stdin_mode {
         return Err(format!(
-            "--trust-repo/-T cannot be used with --file/-f. {}",
-            HELP_HINT
+            "--trust-repo/-T cannot be used with --stdin. {HELP_HINT}"
         ));
     }
 
-    if stdin_mode && seen_separator {
+    if parsed_flags.trust_repo && parsed_flags.file_path.is_some() {
         return Err(format!(
-            "--stdin cannot be combined with git arguments after --. {}",
-            HELP_HINT
+            "--trust-repo/-T cannot be used with --file/-f. {HELP_HINT}"
         ));
     }
 
-    if file_path.is_some() && seen_separator {
+    if parsed_flags.stdin_mode && seen_separator {
         return Err(format!(
-            "--file/-f cannot be combined with git arguments after --. {}",
-            HELP_HINT
+            "--stdin cannot be combined with git arguments after --. {HELP_HINT}"
         ));
     }
 
-    let input_mode = if seen_separator {
+    if parsed_flags.file_path.is_some() && seen_separator {
+        return Err(format!(
+            "--file/-f cannot be combined with git arguments after --. {HELP_HINT}"
+        ));
+    }
+
+    Ok(())
+}
+
+fn build_input_mode(
+    parsed_flags: &ParsedFlags,
+    after_separator: Vec<String>,
+    seen_separator: bool,
+) -> Result<InputMode, String> {
+    if seen_separator {
         if after_separator.is_empty() {
             return Err(format!(
-                "expected at least one git argument after --. {}",
-                HELP_HINT
+                "expected at least one git argument after --. {HELP_HINT}"
             ));
         }
-        InputMode::Git {
-            git_args: after_separator,
-        }
-    } else if let Some(path) = file_path {
-        InputMode::File { path }
-    } else if stdin_mode {
-        InputMode::Stdin
-    } else {
-        InputMode::Git {
-            git_args: vec!["-1".to_string()],
-        }
-    };
 
-    Ok(CliAction::Run(CliOptions {
-        config_path,
-        preset,
-        repository_path,
-        trust_repo,
-        input_mode,
-    }))
+        return Ok(InputMode::Git {
+            git_args: after_separator,
+        });
+    }
+
+    if let Some(path) = &parsed_flags.file_path {
+        return Ok(InputMode::File { path: path.clone() });
+    }
+
+    if parsed_flags.stdin_mode {
+        return Ok(InputMode::Stdin);
+    }
+
+    Ok(InputMode::Git {
+        git_args: vec!["-1".to_owned()],
+    })
+}
+
+fn next_arg_value<I>(args: &mut I, arg: &str) -> Result<String, String>
+where
+    I: Iterator<Item = String>,
+{
+    args.next()
+        .ok_or_else(|| format!("missing value for {arg}. {HELP_HINT}"))
+}
+
+fn ensure_flag_not_set(is_set: bool, option_name: &str) -> Result<(), String> {
+    if is_set {
+        return Err(format!(
+            "{option_name} may be specified only once. {HELP_HINT}"
+        ));
+    }
+
+    Ok(())
+}
+
+fn ensure_option_not_set<T>(value: Option<&T>, option_name: &str) -> Result<(), String> {
+    if value.is_some() {
+        return Err(format!(
+            "{option_name} may be specified only once. {HELP_HINT}"
+        ));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

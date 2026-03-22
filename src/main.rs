@@ -23,14 +23,14 @@ fn main() {
     let cli_action = match parse_args(std::env::args().skip(1)) {
         Ok(action) => action,
         Err(error) => {
-            eprintln!("Error: {}", error);
+            eprintln!("Error: {error}");
             process::exit(EXIT_CLI_USAGE_ERROR);
         }
     };
 
     let options = match cli_action {
         CliAction::ShowHelp => {
-            print!("{}", HELP_TEXT);
+            print!("{HELP_TEXT}");
             return;
         }
         CliAction::Run(options) => options,
@@ -47,22 +47,19 @@ fn main() {
             process::exit(EXIT_OK);
         }
         Err(AppError::Config(error)) => {
-            eprintln!("Config error: {}", error);
+            eprintln!("Config error: {error}");
             process::exit(EXIT_CONFIG_ERROR);
         }
         Err(AppError::Git(error)) => {
-            eprintln!("Error running git: {}", error);
+            eprintln!("Error running git: {error}");
             process::exit(EXIT_GIT_ERROR);
         }
         Err(AppError::StdinIo(error)) => {
-            eprintln!("Error: Failed to read stdin: {}", error);
+            eprintln!("Error: Failed to read stdin: {error}");
             process::exit(EXIT_IO_ERROR);
         }
         Err(AppError::FileIo { path, error }) => {
-            eprintln!(
-                "Error: Failed to read commit message file '{}': {}",
-                path, error
-            );
+            eprintln!("Error: Failed to read commit message file '{path}': {error}");
             process::exit(EXIT_IO_ERROR);
         }
     }

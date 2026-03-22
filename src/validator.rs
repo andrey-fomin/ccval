@@ -10,8 +10,8 @@ pub fn validate(commit: &Commit, config: &Config) -> Vec<String> {
     if let Some(rules) = &config.header {
         validate_field_rules(rules, &commit.header, "header", true, &mut errors);
     }
-    if let Some(rules) = &config.commit_type {
-        validate_field_rules(rules, &commit.commit_type, "type", false, &mut errors);
+    if let Some(rules) = &config.r#type {
+        validate_field_rules(rules, &commit.r#type, "type", false, &mut errors);
     }
     if let Some(rules) = &config.scope {
         if let Some(scope) = commit.scope.as_deref() {
@@ -57,14 +57,14 @@ pub fn validate(commit: &Commit, config: &Config) -> Vec<String> {
                     validate_field_rules(
                         rules,
                         &footer.value,
-                        &format!("footer '{}'", footer_name),
+                        &format!("footer '{footer_name}'"),
                         true,
                         &mut errors,
                     );
                 }
             }
             if !found && rules.required == Some(true) {
-                errors.push(format!("required footer '{}' is missing", footer_name));
+                errors.push(format!("required footer '{footer_name}' is missing"));
             }
         }
     }
@@ -80,7 +80,7 @@ fn validate_field_rules(
     errors: &mut Vec<String>,
 ) {
     if rules.forbidden == Some(true) {
-        errors.push(format!("{} is forbidden", field_name));
+        errors.push(format!("{field_name} is forbidden"));
         return;
     }
 
@@ -118,12 +118,11 @@ fn validate_field_rules(
         }
     }
 
-    if let Some(regexes) = &rules.regexes {
+    if let Some(regexes) = rules.regexes.as_ref() {
         for regex in regexes {
             if !regex.is_match(text) {
                 errors.push(format!(
-                    "{} does not match regex '{}'",
-                    field_name,
+                    "{field_name} does not match regex '{}'",
                     regex.as_str()
                 ));
             }
@@ -138,8 +137,7 @@ fn validate_field_rules(
         };
         if !values.contains(&stripped_text.to_string()) {
             errors.push(format!(
-                "{} '{}' is not in allowed values: {:?}",
-                field_name, stripped_text, values
+                "{field_name} '{stripped_text}' is not in allowed values: {values:?}"
             ));
         }
     }
@@ -159,7 +157,7 @@ mod tests {
         let commit = crate::parser::parse("feat: a good commit\n").unwrap();
         let config = parse_config("type:\n  values:\n    - feat\n    - fix\n");
         let errors = validate(&commit, &config);
-        assert!(errors.is_empty(), "Expected no errors, got {:?}", errors);
+        assert!(errors.is_empty(), "Expected no errors, got {errors:?}");
     }
 
     #[test]
@@ -191,7 +189,7 @@ mod tests {
             "body:\n  regexes:\n    - '(?s)^[^\\n].*'\n    - '(?s).*(?:[^\\n])\\n$'\n",
         );
         let errors = validate(&commit, &config);
-        assert!(errors.is_empty(), "Expected no errors, got {:?}", errors);
+        assert!(errors.is_empty(), "Expected no errors, got {errors:?}");
     }
 
     #[test]

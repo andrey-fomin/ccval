@@ -2,7 +2,7 @@
 pub struct Commit {
     pub message: String,
     pub header: String,
-    pub commit_type: String,
+    pub r#type: String,
     pub scope: Option<String>,
     pub breaking: bool,
     pub description: String,
@@ -44,18 +44,17 @@ impl std::fmt::Display for ParseError {
             }
             ParseError::MissingType => write!(f, "Parsing error at line 1:0: Missing commit type"),
             ParseError::InvalidScope(col) => {
-                write!(f, "Parsing error at line 1:{}: Invalid scope", col)
+                write!(f, "Parsing error at line 1:{col}: Invalid scope")
             }
             ParseError::UnclosedScope(col) => {
-                write!(f, "Parsing error at line 1:{}: Unclosed scope", col)
+                write!(f, "Parsing error at line 1:{col}: Unclosed scope")
             }
             ParseError::MissingColonAndSpace(col) => write!(
                 f,
-                "Parsing error at line 1:{}: Missing colon and space after type/scope",
-                col
+                "Parsing error at line 1:{col}: Missing colon and space after type/scope"
             ),
             ParseError::MissingDescription(col) => {
-                write!(f, "Parsing error at line 1:{}: Missing description", col)
+                write!(f, "Parsing error at line 1:{col}: Missing description")
             }
             ParseError::MissingBlankLineAfterHeader => write!(
                 f,
@@ -313,7 +312,7 @@ pub fn parse(message: &str) -> Result<Commit, ParseError> {
     Ok(Commit {
         message: normalized_message,
         header,
-        commit_type,
+        r#type: commit_type,
         scope,
         breaking,
         description,
@@ -337,7 +336,7 @@ mod tests {
     #[test]
     fn ok_header_minimal() {
         let commit = assert_ok("type1: description text\n");
-        assert_eq!(commit.commit_type, "type1");
+        assert_eq!(commit.r#type, "type1");
         assert_eq!(commit.scope, None);
         assert!(!commit.breaking);
         assert_eq!(commit.description, "description text");
@@ -348,7 +347,7 @@ mod tests {
     #[test]
     fn ok_header_with_scope() {
         let commit = assert_ok("type1(scope1): description text\n");
-        assert_eq!(commit.commit_type, "type1");
+        assert_eq!(commit.r#type, "type1");
         assert_eq!(commit.scope, Some("scope1".to_string()));
         assert!(!commit.breaking);
         assert_eq!(commit.description, "description text");
@@ -357,7 +356,7 @@ mod tests {
     #[test]
     fn ok_header_with_breaking() {
         let commit = assert_ok("type1!: description text\n");
-        assert_eq!(commit.commit_type, "type1");
+        assert_eq!(commit.r#type, "type1");
         assert_eq!(commit.scope, None);
         assert!(commit.breaking);
         assert_eq!(commit.description, "description text");
@@ -366,7 +365,7 @@ mod tests {
     #[test]
     fn ok_header_preserves_description_surrounding_spaces() {
         let commit = assert_ok("type1(scope1):  description \n");
-        assert_eq!(commit.commit_type, "type1");
+        assert_eq!(commit.r#type, "type1");
         assert_eq!(commit.scope, Some("scope1".to_string()));
         assert_eq!(commit.description, " description ");
     }
@@ -394,7 +393,7 @@ mod tests {
         let commit = assert_ok(
             "type1(scope1)!: description text\n\nbody line 1\nbody line 2\n\nfooter-token1: footer value 1\nfooter-token2: footer value 2\n",
         );
-        assert_eq!(commit.commit_type, "type1");
+        assert_eq!(commit.r#type, "type1");
         assert_eq!(commit.scope, Some("scope1".to_string()));
         assert!(commit.breaking);
         assert_eq!(commit.description, "description text");
@@ -551,7 +550,7 @@ mod tests {
     #[test]
     fn ok_unicode_text_is_allowed() {
         let commit = assert_ok("föö(scöpé): décrïption text\n\nтело\n");
-        assert_eq!(commit.commit_type, "föö");
+        assert_eq!(commit.r#type, "föö");
         assert_eq!(commit.scope, Some("scöpé".to_string()));
         assert_eq!(commit.description, "décrïption text");
         assert_eq!(commit.body, Some("тело\n".to_string()));

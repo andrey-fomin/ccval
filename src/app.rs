@@ -37,19 +37,19 @@ pub fn run(options: CliOptions, git_loader: &dyn GitLoader) -> Result<RunOutcome
                 if !errors.is_empty() {
                     validation_failed = true;
                     if input.label != "stdin" {
-                        eprintln!("{}:", input.label);
+                        eprintln!("{label}:", label = input.label);
                     }
                     for error in errors {
-                        eprintln!("Validation error: {}", error);
+                        eprintln!("Validation error: {error}");
                     }
                 }
             }
             Err(error) => {
                 parse_failed = true;
                 if input.label != "stdin" {
-                    eprintln!("{}:", input.label);
+                    eprintln!("{label}:", label = input.label);
                 }
-                eprintln!("{}", error);
+                eprintln!("{error}");
             }
         }
     }
@@ -78,7 +78,7 @@ fn load_inputs(
 ) -> Result<Vec<CommitInput>, AppError> {
     match input_mode {
         InputMode::Stdin => Ok(vec![CommitInput {
-            label: "stdin".to_string(),
+            label: "stdin".to_owned(),
             message: read_stdin().map_err(AppError::StdinIo)?,
         }]),
         InputMode::File { path } => {
@@ -106,9 +106,9 @@ fn load_inputs(
 fn format_commit_label(commit_id: &str, message: &str) -> String {
     let subject = message.lines().next().map(str::trim).unwrap_or_default();
     if subject.is_empty() {
-        format!("commit {}", commit_id)
+        format!("commit {commit_id}")
     } else {
-        format!("commit {}: {}", commit_id, subject)
+        format!("commit {commit_id}: {subject}")
     }
 }
 
@@ -145,10 +145,9 @@ mod tests {
                     },
                     stderr: match err {
                         GitError::GitFailed { stderr, .. } => stderr.clone(),
-                        GitError::Io(e) => e.to_string(),
+                        GitError::Io(e) | GitError::CurrentDirResolution(e) => e.to_string(),
                         GitError::InvalidOutput(s) => s.clone(),
                         GitError::RepositoryPathResolution { error, .. } => error.to_string(),
-                        GitError::CurrentDirResolution(e) => e.to_string(),
                     },
                 });
             }
