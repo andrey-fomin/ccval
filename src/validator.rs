@@ -152,6 +152,20 @@ mod tests {
         serde_yaml::from_str(yaml).unwrap()
     }
 
+    fn validate_commit(commit_text: &str, config_yaml: &str) -> Vec<String> {
+        let commit = crate::parser::parse(commit_text).unwrap();
+        let config = parse_config(config_yaml);
+        validate(&commit, &config)
+    }
+
+    fn assert_validate(commit_text: &str, config_yaml: &str, expected: Vec<&str>) {
+        let errors = validate_commit(commit_text, config_yaml);
+        assert_eq!(
+            errors,
+            expected.into_iter().map(str::to_string).collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn test_validate_ok() {
         let commit = crate::parser::parse("feat: a good commit\n").unwrap();
@@ -202,6 +216,38 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_table() {
+        for (commit, config, expected) in [
+            (
+                "feat: a good commit\n",
+                "type:\n  values:\n    - feat\n    - fix\n",
+                vec![],
+            ),
+            (
+                "foo: invalid type\n",
+                "type:\n  values:\n    - feat\n    - fix\n",
+                vec!["type 'foo' is not in allowed values: [\"feat\", \"fix\"]".to_string()],
+            ),
+        ] {
+            assert_eq!(validate_commit(commit, config), expected);
+        }
+    }
+
+    #[test]
+    fn test_validate_footer_matrices() {
+        assert_validate(
+            "feat: subject\n\nSigned-off-by: Alice\nReviewed-by: Bob\n",
+            "footers:\n  Signed-off-by:\n    required: true\n  Reviewed-by:\n    values:\n      - Bob\n",
+            vec![],
+        );
+        assert_validate(
+            "feat: subject\n\nSigned-off-by: Alice\nSigned-off-by: Mallory\n",
+            "footers:\n  Signed-off-by:\n    values:\n      - Alice\n",
+            vec!["footer 'Signed-off-by' 'Mallory' is not in allowed values: [\"Alice\"]"],
+        );
+    }
+
+    #[test]
     fn test_validate_multiple_errors() {
         let commit =
             crate::parser::parse("bar: x\n\nthis body is way too long for the limit\n").unwrap();
@@ -216,5 +262,64 @@ mod tests {
                 "type \'bar\' is not in allowed values: [\"feat\", \"fix\"]"
             ]
         );
+    }
+
+    #[test]
+    fn test_validate_required_body_and_footer_missing() {
+        let commit = crate::parser::parse("feat: subject\n").unwrap();
+        let config = parse_config(
+            "body:\n  required: true\nfooters:\n  Signed-off-by:\n    required: true\n",
+        );
+
+        let errors = validate(&commit, &config);
+
+        assert_eq!(
+            errors,
+            vec![
+                "required body is missing",
+                "required footer 'Signed-off-by' is missing"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_validate_footer_token_and_value_rules() {
+        let commit = crate::parser::parse("feat: subject\n\nSigned-off-by: Alice\n").unwrap();
+        let config = parse_config(
+            "footer-token:\n  values:\n    - Signed-off-by\nfooter-value:\n  regexes:\n    - '^Alice\\n$'\n",
+        );
+
+        let errors = validate(&commit, &config);
+
+        assert!(errors.is_empty(), "Expected no errors, got {errors:?}");
+    }
+
+    #[test]
+    fn test_validate_forbidden_field_short_circuits_other_rules() {
+        let commit = crate::parser::parse("feat: subject\n").unwrap();
+        let config = parse_config("message:\n  forbidden: true\n  max-length: 1\n");
+
+        let errors = validate(&commit, &config);
+
+        assert_eq!(errors, vec!["message is forbidden"]);
+    }
+
+    #[test]
+    fn test_validate_boundary_and_footer_cases() {
+        let exact = crate::parser::parse("feat: abc\n").unwrap();
+        let over = crate::parser::parse("feat: abcd\n").unwrap();
+        let footer_commit =
+            crate::parser::parse("feat: subject\n\nSigned-off-by: Alice\n").unwrap();
+
+        let exact_errors = validate(&exact, &parse_config("description:\n  max-length: 3\n"));
+        let over_errors = validate(&over, &parse_config("description:\n  max-length: 3\n"));
+        let footer_errors = validate(
+            &footer_commit,
+            &parse_config("footer-value:\n  regexes:\n    - '^Alice\\n$'\n"),
+        );
+
+        assert!(exact_errors.is_empty());
+        assert!(!over_errors.is_empty());
+        assert!(footer_errors.is_empty());
     }
 }
